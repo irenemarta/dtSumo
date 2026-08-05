@@ -1,0 +1,4 @@
+.env
+data
+__pycache__
+scripts/src/operations/connections.py
