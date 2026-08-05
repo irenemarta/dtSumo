@@ -161,15 +161,6 @@ def run_macroscopic_assignment(scenario: str, period: str, taz_file: Path) -> Pa
 def build_sumocfg(
     scenario: str, period: str, taz_file: Path, routes_final: Path
 ) -> None:
-    """
-    Costruisce il .sumocfg PER AM/PM, puntando esplicitamente al file di
-    route DOPO l'estensione O'/D' (routes_final = marouter_output_extended
-    .rou.xml). Va chiamata dopo extend_subset_of_trips, non prima: se
-    chiamata sul file pre-estensione (come accadeva in precedenza, quando
-    questa build era dentro run_macroscopic_assignment) la simulazione
-    finisce per usare le route SENZA l'estensione locale, vanificando
-    silenziosamente tutto il lavoro fatto in step 4.3.
-    """
     detectors_file = cfg.DETECTORS[scenario][period]
     CfgAttributes(
         net=cfg.NET_FILE,
@@ -264,11 +255,6 @@ def run_macroscopic_assignment_day(
 def build_sumocfg_day(
     scenario: str, taz_file: Path, routes_final: Path, scale: float = DEFAULT_DAY_SCALE
 ) -> None:
-    """
-    Equivalente di build_sumocfg() ma per lo scenario DAY: va chiamata dopo
-    extend_subset_of_trips(..., "DAY", ...), puntando al file esteso
-    invece che a routes_filtered pre-estensione.
-    """
     detectors_file = cfg.DETECTORS[scenario]["DAY"]
     CfgAttributes(
         net=cfg.NET_FILE,
@@ -383,46 +369,11 @@ def build_edge_to_taz(taz_file: Path) -> Dict[str, str]:
 MAX_EXTENSION_ROUNDS = (
     10  # round di retry con candidati diversi per i viaggi ancora irrisolti
 )
-MAX_USES_PER_EDGE = 15  # cap sul SOLO terminale scelto (non sugli edge di passaggio):
-# un cap troppo stretto fa fallire più viaggi (candidati esauriti),
-# che tornano sulla route originale (arterie principali).
-# STORIA DEL TUNING: valore iniziale 30. Con K_NEAREST_CANDIDATES alzato
-# da 12 a 20 la copertura dell'estensione non è migliorata in modo
-# apprezzabile (prefix 13229->13249, suffix 9273->9357 su ~24800 viaggi
-# selezionabili), segno che per i cluster di attach point più densi non
-# esistono altri edge residenziali entro MAX_EXTENSION_RADIUS_M oltre a
-# quelli già raggiunti con K=12: il vincolo reale è la scarsità locale di
-# edge, non la dimensione del pool. Alzato quindi il cap a 50 per
-# permettere agli stessi edge vicini di assorbire più viaggi ciascuno,
-# unica leva rimasta per recuperare copertura senza allontanare
-# geograficamente le estensioni. Da validare: se la % di edge saturi resta
-# comunque alta e la copertura non risale a sufficienza, il limite è
-# probabilmente strutturale (rete residenziale reale troppo rada in quelle
-# zone) più che di tuning — vedi diagnose_extension_distances.py.
+MAX_USES_PER_EDGE = 15  # cap for passeges over a selected edge 
 
-MAX_EXTENSION_RADIUS_M = 500.0  # raggio massimo (metri, coordinate di rete) dal
-# punto di aggancio entro cui un edge residenziale è considerato un candidato
-# valido per l'estensione O'/D'. Evita estensioni geograficamente insensate
-# su TAZ molto estese (es. 604-608, 635), dove il pool di candidati può
-# coprire chilometri di rete. Zona di studio ~1 km di raggio: 500 m tiene
-# l'estensione genuinamente locale senza far crollare troppo la quota di
-# viaggi risolti. Se dopo il primo run la dispersione residua nelle mappe
-# source/sink resta eccessiva, stringere a 400; se invece troppi viaggi
-# restano non estesi (pending esauriti), allargare leggermente o alzare
-# K_NEAREST_CANDIDATES.
-K_NEAREST_CANDIDATES = 20  # tra i candidati entro il raggio, quanti dei più
-# vicini formano il pool su cui pescare random.choice. Un pool piccolo ma
-# non singleton evita sia la dispersione geografica (troppi candidati)
-# sia la saturazione immediata di un unico edge (troppo pochi candidati).
-# NOTA: con MAX_USES_PER_EDGE=30, la capacità nominale di un cluster locale
-# è K_NEAREST_CANDIDATES x MAX_USES_PER_EDGE. Con K=12 (valore iniziale) e
-# il cap ora correttamente rispettato (fix su edge_use_count riservato
-# subito, non a fine round), la capacità si è rivelata insufficiente nelle
-# zone a domanda densa: la quota di viaggi estesi è crollata dal 78%/66%
-# (prefix/suffix, con cap non rispettato) al 53%/37% (cap rispettato, K=12).
-# K=20 alza la capacità nominale a 20x30=600 slot per cluster locale,
-# restando comunque entro il raggio di 500 m (le distanze osservate anche
-# ai percentili alti, p90~400-430m con K=12, lasciano margine).
+MAX_EXTENSION_RADIUS_M = 500.0  # boundery radius (distance in m) from connector for which a residential edge is considerable as candidate for the extension.
+
+K_NEAREST_CANDIDATES = 20  # among the candidates, how many can form the pool for random.choice selection.
 
 
 def _dist(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
@@ -438,9 +389,8 @@ def _nearest_candidates(
     k: int,
 ) -> List[str]:
     """
-    Ritorna fino a k edge_id, ordinati per distanza crescente da ref_point,
-    tra i candidati non ancora tentati, diversi dall'attach_edge, entro
-    MAX_EXTENSION_RADIUS_M e non ancora saturi (MAX_USES_PER_EDGE).
+    Returns up to k edge_id ordered per growing distance from ref_point. 
+    It iterates over the non-analysed candidates, different from attach_edges, included in MAX_EXTENSION_RADIUS_M + non-saturated (MAX_USES_PER_EDGE).
     """
     scored = []
     for eid, x, y in candidates:
@@ -514,26 +464,16 @@ def _resolve_terminal_edges_batch(
             break
 
         batch_specs = []
-        # vid -> candidato riservato in QUESTO round, per poter liberare la
-        # riserva se duarouter non risolve quel viaggio (edge non davvero
-        # usato) e per sapere quale terminale confermare se invece risolve.
         reserved_this_round: Dict[str, str] = {}
 
         for vid, (taz_id, attach_edge) in still_pending.items():
             edge_obj = net.getEdge(attach_edge)
-            # prefix: il punto di riferimento è l'inizio dell'attach_edge
-            # (dove il viaggio "entra" nella rete macroscopica);
-            # suffix: la fine (dove il viaggio "esce").
+            # prefix: the beginning of attach_edgei is the reference point (the route entry point)
+            # suffix: the end of the route (exit point)
             ref_node = (
                 edge_obj.getFromNode() if direction == "prefix" else edge_obj.getToNode()
             )
             ref_point = ref_node.getCoord()
-
-            # edge_use_count viene letto e aggiornato QUI, dentro il loop
-            # sui viaggi dello stesso round (non a fine round): così se due
-            # viaggi con attach point vicini condividono lo stesso pool
-            # ristretto di K_NEAREST_CANDIDATES, il secondo vede già la
-            # riserva del primo e il cap è rispettato anche intra-round.
             near = _nearest_candidates(
                 residential_by_taz.get(taz_id, []),
                 ref_point,
@@ -563,9 +503,7 @@ def _resolve_terminal_edges_batch(
                 still_pending.pop(vid, None)
                 # riserva confermata, nessun aggiustamento necessario
             else:
-                # duarouter non ha risolto: l'edge non è stato davvero
-                # usato, libera la riserva così altri viaggi (o questo
-                # stesso viaggio in un round successivo) possano usarlo
+                # unresolved duarouter
                 edge_use_count[candidate] = max(0, edge_use_count.get(candidate, 1) - 1)
 
     return resolved
@@ -615,11 +553,11 @@ def extend_trips_batch(
             extended[vid] = prefixes[vid][:-1] + info["edges"] + suffixes[vid][1:]
             n_both += 1
         elif has_prefix:
-            # solo origine estesa, destinazione resta quella originale
+            # extended origin, same destination
             extended[vid] = prefixes[vid][:-1] + info["edges"]
             n_prefix_only += 1
         elif has_suffix:
-            # solo destinazione estesa, origine resta quella originale
+            # extended destination, same origin
             extended[vid] = info["edges"] + suffixes[vid][1:]
             n_suffix_only += 1
 
@@ -668,10 +606,7 @@ def extend_subset_of_trips(
     residential_by_taz: Dict[str, List[ResidentialCandidate]],
 ) -> Path:
     """
-    Applica l'estensione O'/D' a una frazione dei viaggi, indipendentemente
-    dal periodo: funziona identica per AM, PM e DAY, perché opera solo sui
-    tag <vehicle>/<trip> del file routes_macro, senza assumere nulla su
-    come è stato generato (singola matrice oraria o giornata intera).
+    Apply O'/D' extension to a fractio of the total number of routes (FRACTION_TRIPS_TO_EXTEND). 
     """
     work_dir = cfg.WORKDIRS[scenario][period]
     tmp_dir = work_dir / "tmp_duarouter"
@@ -814,10 +749,10 @@ def main(
 
 if __name__ == "__main__":
     # How to:
-    # uv run python -m scripts.src.operations.tust
-    # uv run python -m scripts.src.operations.tust --peaks-only
-    # uv run python -m scripts.src.operations.tust --day-only
-    # uv run python -m scripts.src.operations.tust --day-only --scale 0.8
+    # uv run python -m scripts.src.operations.assignment
+    # uv run python -m scripts.src.operations.assignment --peaks-only
+    # uv run python -m scripts.src.operations.assignment --day-only
+    # uv run python -m scripts.src.operations.assignment --day-only --scale 0.8
 
     args = sys.argv[1:]
     run_peaks = "--day-only" not in args

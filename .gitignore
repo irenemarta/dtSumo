@@ -1,4 +1,6 @@
 .env
+.venv
 data
+scripts/output
 __pycache__
 scripts/src/operations/connections.py
