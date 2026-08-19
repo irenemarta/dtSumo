@@ -7,13 +7,15 @@ from pathlib import Path
 
 # Main roots
 # HACK: change BASE_PATH with the correct project path
-BASE_PATH = Path("/home/marta/dtSumo")
+BASE_PATH = Path("/home/fullsuper/irene/dtSumo")
 SCRIPTS_ROOT = BASE_PATH / "scripts"
 DATA_PATH = BASE_PATH / "data"
 OUTPUT_BASE = SCRIPTS_ROOT / "output"
 OUTPUT_DASHBOARDS = OUTPUT_BASE / "dashboards"
 IMAGES = OUTPUT_BASE / "img"
+SENS_DATA_FOLDER = DATA_PATH / "sensors"
 SENS_LANE_LOOKUP = DATA_PATH / "sens_lanes_match.csv"
+
 VIEW = SCRIPTS_ROOT / "views/vehicles.view.xml"
 
 # Inputs

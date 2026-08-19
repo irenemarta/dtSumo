@@ -27,6 +27,10 @@ class XMLBuilder:
             "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
         }
     
+    FORCE_ALLOW_BY_TYPE = {
+        "highway.service": {"passenger"},
+    }
+    
     def _root(self, element_name: str) -> dict:
         return {
             **self._HEADER_SCHEMA,
@@ -54,8 +58,10 @@ class XMLBuilder:
         return length
     
     @staticmethod
-    def disallowed(lane) -> str:
+    def disallowed(lane, force_allow: set = None) -> str:
         allowed_vclasses = lane.getPermissions() or SUMO_VEHICLE_CLASSES
+        if force_allow:
+            allowed_vclasses |= force_allow
         return " ".join(sorted(SUMO_VEHICLE_CLASSES - set(allowed_vclasses)))
     
     def build(self, net) -> ET.Element:
@@ -169,6 +175,7 @@ class EdgeBuilder(XMLBuilder):
 
         for edge in net.getEdges():
             edge_attribs = {"id": edge.getID()}
+            edge_type = getattr(edge, "_type", "")
             
             # Internal edge management
             if edge.getID()[0] == ":":
@@ -181,13 +188,16 @@ class EdgeBuilder(XMLBuilder):
                         "name": edge.getName(),
                         "priority": str(edge.getPriority()),
                         "numLanes": str(len(edge.getLanes())),
-                        "type": getattr(edge, "_type", ""),
+                        "type": edge_type,
                         "length": str(self.calculate_edge_length(edge.getShape())),
                         "shape": self._shape_to_str(edge.getShape())
                     }
                 )
             # Creation of edge subelement
             edge_element = ET.SubElement(root, "edge", edge_attribs)
+            
+            force_allow = self.FORCE_ALLOW_BY_TYPE.get(edge_type)
+            
             
             # Definition of lane element
             for lane in edge.getLanes():
@@ -198,7 +208,7 @@ class EdgeBuilder(XMLBuilder):
                     {
                         "id": lane.getID(),
                         "index": str(lane.getIndex()),
-                        "disallow": self.disallowed(lane),
+                        "disallow": self.disallowed(lane, force_allow),
                         "speed": str(lane.getSpeed()),
                         "length": str(lane.getLength()),
                         "width": str(lane.getWidth()),

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-08-05 17:06:26.633860 by Eclipse SUMO randomTrips.py UNKNOWN
+<!-- generated on 2026-08-13 00:10:59.965507 by Eclipse SUMO randomTrips.py v1.25.0
 <configuration>
-    <net-file value="/home/marta/dtSumo/data/raw/francia_peschiera_passenger.net.xml"/>
-    <output-trip-file value="/home/marta/dtSumo/scripts/output/parsed/pedestrians.trips.xml"/>
+    <net-file value="/home/fullsuper/irene/dtSumo/data/raw/francia_peschiera_passenger.net.xml"/>
+    <output-trip-file value="/home/fullsuper/irene/dtSumo/scripts/output/parsed/pedestrians.trips.xml"/>
     <persontrips value="True"/>
     <prefix value="pedestrian"/>
     <vehicle-class value="pedestrian"/>
@@ -11,12 +11,12 @@
 </configuration>
 -->
 
-<!-- generated on 2026-08-05T17:06:24.061012+01:00 by Eclipse SUMO duarouter 1.25.0
+<!-- generated on 2026-08-13T00:10:58.515096+01:00 by Eclipse SUMO duarouter 1.26.0
 <duarouterConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/duarouterConfiguration.xsd">
 
     <input>
-        <net-file value="/home/marta/dtSumo/data/raw/francia_peschiera_passenger.net.xml"/>
-        <route-files value="/home/marta/dtSumo/scripts/output/parsed/pedestrians.trips.xml"/>
+        <net-file value="/home/fullsuper/irene/dtSumo/data/raw/francia_peschiera_passenger.net.xml"/>
+        <route-files value="/home/fullsuper/irene/dtSumo/scripts/output/parsed/pedestrians.trips.xml"/>
     </input>
 
     <output>

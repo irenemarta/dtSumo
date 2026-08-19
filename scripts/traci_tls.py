@@ -27,9 +27,9 @@ CONTROLLED_TLS = {
     #"joinedS_28807263_441653642_441653644_5758251607_#22more",
 }
 SUMO_CONFIG = [
-    "sumo-gui",
+    "sumo",
     "-c",
-    "/home/marta/tesi-5t/DTBaldissera/vm-file/project/scripts/output/config/francia_peschiera_MAROUTER_with_TLS_AM.sumocfg",
+    "/home/fullsuper/irene/dtSumo/scripts/output/config/francia_peschiera_MAROUTER_with_TLS_AM.sumocfg",
 ]
 
 traci.start(SUMO_CONFIG)

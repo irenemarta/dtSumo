@@ -478,7 +478,6 @@ def run_marouter(
     od_matrices: list | tuple | Path,
     taz_file: Path,
     out_dir: Path,
-    # weights: Path,
     trips_output: Path | List[Path],
     #taz_rel: Path,
     data_dir: Path = None,
@@ -493,8 +492,7 @@ def run_marouter(
     scale: float = 1.0,
     #agg_interval: int = 1,
     netload_output: str = None,
-    all_pair_output: str = None,
-    weights_priority: float = 0.3,
+    weights_priority: float = 0.0,
     paths: int = 18,
     path_penalty: float = 15.0,
     max_iterations: int = 100,
@@ -602,25 +600,24 @@ def run_marouter(
         #"--skip-new-routes", "false", # force new routes research
         "--ignore-errors", "true", # continue even in case of errors
         # "--with-taz", "true",
+        # "--ignore-taz", "true", --> funziona meno, testato a parità del resto
         # TO MANAGE TLS EFFECT
         "--weights.expand", "true", # infinitelly expands last interval weight file
         "--weights.tls-penalty", str(weights_tls),  # seconds penalty for each tls
         "--weights.priority-factor", str(weights_priority), # Consider edge priorities in addition to travel times, weighted by factor
         "--vtype", "passenger",
-        "--capacities.default", "true",
+        # "--capacities.default", "true", --> provato ma porta a tempi di scarico/viaggio e teleport più alti
         #"--verbose"
         
         # "--route-choice-method", str(route_choice),
         # "--max-iterations", str(max_iterations),
         # "--taz-param", "weight", # Parameter key(s) defining source (and sink) taz
-        "--weight-files", str(weight_files),
         ]
     
     if netload_output:
         cmd += ["--netload-output", str(netload_output)]
-    if all_pair_output:
-        cmd += ["--all-pairs-output", str(netload_output)]
-        
+    if weight_files:
+        cmd += ["--weight-files", str(weight_files), "--weight-attribute", "traveltime"]
     if scale:
         cmd += ['--scale', str(scale)]
 
@@ -652,7 +649,7 @@ def run_marouter(
     elif method.lower() == "incremental":
         cmd += ["--route-choice-method", str(route_choice),
             "--max-iterations", str(max_iterations),
-            "--taz-param", "weight", # Parameter key(s) defining source (and sink) taz
+            #"--taz-param", "weight", # Parameter key(s) defining source (and sink) taz
                 ]
 
     additional_list = [str(taz_file)]
@@ -674,6 +671,7 @@ def run_marouter(
             cmd.append(str(extra_args))
 
     print(f"Running marouter in {out_dir}")
+    print(f"PARAMETERS:\n{" ".join(cmd)}")
 
     try:
         #cmd = [str(arg) for arg in cmd]

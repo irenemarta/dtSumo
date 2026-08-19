@@ -8,33 +8,24 @@ init(autoreset=True)
 
 
 #### FILTERING
-def _count_edges(element: ET.Element) -> int | None:
-    """Count edges in a route fro the best element of the flow
-    It works correctly both with duarouter and marouter:
-    - route with tag edges for duarouter
-    - routeDistributions with tags: cost, route probability, edges for marouter"""
-
-    # Duarouter case
+def _get_edges(element: ET.Element) -> list[str] | None:
     route = element.find("route")
     if route is not None:
-        n_edges = len(route.attrib.get("edges", "").split())
-        return n_edges
-
-    # Marouter case
+        return route.attrib.get("edges", "").split()
     rd = element.find("routeDistribution")
     if rd is not None:
         routes = rd.findall("route")
         if routes:
-            best_route = max(
-                routes, key=lambda r: float(r.attrib.get("probability", 0))
-            )
-            n_edges = len(best_route.attrib.get("edges", "").split())
-            return n_edges
-
+            best = max(routes, key=lambda r: float(r.attrib.get("probability", 0)))
+            return best.attrib.get("edges", "").split()
     return None
 
+def _count_edges(element: ET.Element) -> int | None:
+    edges = _get_edges(element)
+    return len(edges) if edges is not None else None
 
-def filter_short_flows(input_xml: Path, output_new: Path, min_edges: int = 2) -> Path:
+
+def filter_short_flows(input_xml: Path, output_new: Path, edge_taz_map: dict, min_edges: int = 2) -> Path:
     """
     Overwrites XML to eliminate really short trips that create artificial bottlenecks in the system.
     """
@@ -49,15 +40,20 @@ def filter_short_flows(input_xml: Path, output_new: Path, min_edges: int = 2) ->
     for tag in ["vehicle", "flow"]:
         for el in root.findall(tag):
             n_edges = _count_edges(el)
+            edges = _get_edges(el)
+            
+            from_taz_raw = edge_taz_map.get(edges[0])
+            to_taz_raw = edge_taz_map.get(edges[-1])
             try:
-                from_taz = int(el.attrib.get("fromTaz", ""))
-                to_taz = int(el.attrib.get("toTaz", ""))
-                is_external = (
-                    from_taz >= 10000 or to_taz >= 10000
-                )  # convention for external zones offsets
+                from_taz = int(from_taz_raw)
+                to_taz = int(to_taz_raw)
             except ValueError as e:
                 print("Value Error, from/to TAZ in wrong format")
                 raise
+            
+            is_external = (
+                from_taz >= 10000 or to_taz >= 10000
+            )  # convention for external zones offsets
 
             if n_edges < min_edges and is_external:
                 short_ids.append(el.get("id"))

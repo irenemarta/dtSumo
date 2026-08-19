@@ -14,7 +14,7 @@ class CfgAttributes:
     output_sumo: Path
     config_name: str
     meso: bool = False
-    teleport: Union[int, str] = "100"
+    teleport: Union[int, str] = "300"
     setting: Optional[Path] = None
 
     def build(self, method: str, begin: int, end: int, taz: str = None, tazrel: str = None, detectors: str = None, edgedata: str = None):        

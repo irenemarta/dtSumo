@@ -72,20 +72,26 @@ def __beta(hour: float) -> float:
     return 1 - __alpha(hour)
 
 
-def _scale_factor() -> tuple[Dict[int, float], float]:
+def _scale_factor(data: Path = None) -> tuple[Dict[int, float], float]:
     """
     Scale factor [0,1]: how much traffic at this hour relative to peak.
     Based on PASTA data
 
     """
-    load_dotenv()  # reads variables from a .env file and sets them in os.environ
-    connection_strings = {
-        "ista": os.getenv("ISTA_URL"),
-        "istc": os.getenv("ISTC_URL"),
-    }
-
-    _, flows = _get_pasta_data(connection_strings["ista"], connection_strings["istc"])
-    # real_data = pasta_db_merge(anagraphics, flows)
+    if data is not None:
+        flows = pd.read_csv(data)
+    else:
+        load_dotenv()  # reads variables from a .env file and sets them in os.environ
+        connection_strings = {
+            "ista": os.getenv("ISTA_URL"),
+            "istc": os.getenv("ISTC_URL"),
+        }
+        if not ista_url or not istc_url:
+            raise ValueError("ERROR: ISTA_URL or ISTC_URL not in .env file")
+        
+        _, flows = _get_pasta_data(connection_strings["ista"], connection_strings["istc"])
+        # real_data = pasta_db_merge(anagraphics, flows)
+        
     day_hour_flows = flows.groupby(["hour", "daytime"])["count_all"].sum()
     hourly_mean_counts = day_hour_flows.groupby("hour").mean()
     peak = hourly_mean_counts.max()
@@ -150,7 +156,7 @@ def _day_scenario_trips(
 
 
 def generate_hour_matrices(
-    od_morning: str, od_evening: str, output_dir_data: Path, demand_scale: float = 1.0
+    od_morning: str, od_evening: str, input_data: Path, output_dir_data: Path, demand_scale: float = 1.0
 ) -> Dict[int, pd.DataFrame]:
 
     df_morning = _load_ods(od_morning)
@@ -163,7 +169,7 @@ def generate_hour_matrices(
     df_combined["Flow_AM"] = df_combined["Flow_AM"].fillna(0.0)
     df_combined["Flow_PM"] = df_combined["Flow_PM"].fillna(0.0)
 
-    k_perc, _ = _scale_factor()
+    k_perc, _ = _scale_factor(input_data)
     print(
         f"Peaks: AM = {df_combined["Flow_AM"].sum()}, PM = {df_combined["Flow_PM"].sum()}"
     )
@@ -198,6 +204,7 @@ def generate_hour_matrices(
     print(f"Total vehicles: {sum(accumulator)}")
 
     for hour, matrix in hour_matrices.items():
+        output_dir_data.mkdir(parents=True, exist_ok=True)
         with open(
             Path(output_dir_data, f"h0{hour}.mtx" if hour < 10 else f"h{hour}.mtx"),
             "w",

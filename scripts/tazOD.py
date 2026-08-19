@@ -35,7 +35,6 @@ from scripts.src.operations.cmd import (
 )
 
 from scripts.src.helpers import parse_edges, write_taz_relations
-from scripts.src.operations.calibration import extend_route_endpoints_coverage
 from scripts.src.operations.filtering import filter_short_flows, filter_zero_prob
 import scripts.src.inputs.config as cfg
 
@@ -117,25 +116,7 @@ def _edge_weight(
         return 0.8
     else:
         return 1.0
-
-
-# # HELPER FUNCTION
-# def _edge_weight(edge_id: str, priority: int) -> float:
-#     # Border street exceptions
-#     if edge_id in BORDER_MAIN_STREETS:
-#         return 1.0
-#     if edge_id in BORDER_RESIDENTIALS:
-#         return 0.2
-#     # Assign weights by priority
-#     # the lower the priority, the higher the probability of being a source/sink
-#     if edge_id not in BORDER_MAIN_STREETS and edge_id not in BORDER_RESIDENTIALS:
-#         if priority >= 11:  # primary and secondary
-#             return 0.2
-#         elif priority >= 5 and priority < 11:  # tertiary, secondary_link, tertiary_link
-#             return 0.6
-#         else:  # priority < 5 --> service, unclassified
-#             return 1.0
-
+    
 
 def _edge_direction_weight(
     edge_geom: LineString, zone_geom: Polygon
@@ -167,7 +148,7 @@ def _edge_direction_weight(
 
 # Read edge file and shapefile, leverage geopandas to spatially join them and assign edges to zones
 def read_revisioned_TAZ(
-    edges: Dict, path_zones: Path, path_connectors: Path, output_path="."
+    edges: Dict, path_zones: Path, path_connectors: Path, output_path=".", N_BEST: int = 8,
 ):
 
     zones = gpd.read_file(path_zones)
@@ -278,43 +259,6 @@ def read_revisioned_TAZ(
 
     # MAP OF ZONES -> key = ZONE_ID, value = EDGE_LIST
     taz_map = {}
-
-    # N_BEST = 7
-    N_BEST = 8
-    edge_geoms = gdf_edges_proj.geometry
-
-    # rows = []
-    # for idx, conn in connectors_endpoint_proj.iterrows():
-    #     nearest = edge_geoms.distance(conn.geometry).nsmallest(N_BEST)
-    #     found = [gdf_edges_proj.loc[pos, "edge_id"] for pos in nearest.index]
-    #     print(f"Connettore idx={idx}, punto={conn.geometry}, edge trovati: {found}")
-    #     for pos, dist in nearest.items():
-    #         rows.append(
-    #             {
-    #                 "ZONENO": conn["ZONENO"],
-    #                 "edge_id": gdf_edges_proj.loc[pos, "edge_id"],
-    #                 "distance": dist,
-    #             }
-    #         )
-    # best_external = pd.DataFrame(
-    #     rows, columns=["ZONENO", "edge_id", "distance"]
-    # ).dropna(subset=["ZONENO", "edge_id"])
-    # print(best_external)
-    # # best_external = (
-    # #     joined_external_z.dropna(subset=["ZONENO", "edge_id"])
-    # #     .sort_values("distance")
-    # #     .groupby(level=0)  # group for connector's index
-    # #     .head(N_BEST)  # gets the first value of the sorted list
-    # # )
-
-    # # map internal zones
-    # for _, row in joined_internal_z.dropna(subset=["ID_ZONA"]).iterrows():
-    #     z_id = str(int(row["ID_ZONA"]))
-    #     taz_map.setdefault(z_id, set()).add(row["edge_id"])
-    # # map external zones
-    # for _, row in best_external.iterrows():
-    #     z_id = str(int(row["ZONENO"]))
-    #     taz_map.setdefault(z_id, set()).add(row["edge_id"])
 
     """
     The setdefault() method returns the value of the item with the specified key.
@@ -741,16 +685,16 @@ def main():
 
             routes_final = filter_zero_prob(routes_ma_clean)
             
-            routes_extended, stats = extend_route_endpoints_coverage(
-                routes_xml_path=routes_final,
-                edges=edges,
-                taz_file=taz_file,
-                net_file=net,
-                output_path=Path(cfg.WORKDIRS[s][p]) / "marouter_output_extended.rou.xml",
-                service_priority_threshold=5,
-                max_uses_per_route=2,
-                max_connector_length=1500.0,
-            )
+            # routes_extended, stats = extend_route_endpoints_coverage(
+            #     routes_xml_path=routes_final,
+            #     edges=edges,
+            #     taz_file=taz_file,
+            #     net_file=net,
+            #     output_path=Path(cfg.WORKDIRS[s][p]) / "marouter_output_extended.rou.xml",
+            #     service_priority_threshold=5,
+            #     max_uses_per_route=2,
+            #     max_connector_length=1500.0,
+            # )
             
             print(stats)
 
