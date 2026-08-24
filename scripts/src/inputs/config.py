@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Main roots
 # HACK: change BASE_PATH with the correct project path
-BASE_PATH = Path("/home/fullsuper/irene/dtSumo")
+BASE_PATH = Path("/media/fullsuper/ExternalDisk1/irene/dtSumo")
 SCRIPTS_ROOT = BASE_PATH / "scripts"
 DATA_PATH = BASE_PATH / "data"
 OUTPUT_BASE = SCRIPTS_ROOT / "output"

@@ -552,6 +552,8 @@ def run_marouter(
             cleaned_matrices,
             trips_output,
             extra_args=["--spread.uniform", "true",
+                        "--different-source-sink", "true",
+                        "--vtype", "passenger",
                         "--flow-output", str(trips_output),
                         "--flow-output.probability", "true",
                         "--departspeed", "max",
@@ -606,10 +608,10 @@ def run_marouter(
         "--weights.tls-penalty", str(weights_tls),  # seconds penalty for each tls
         "--weights.priority-factor", str(weights_priority), # Consider edge priorities in addition to travel times, weighted by factor
         "--vtype", "passenger",
+        "--additive-traffic", "true",
         # "--capacities.default", "true", --> provato ma porta a tempi di scarico/viaggio e teleport più alti
         #"--verbose"
         
-        # "--route-choice-method", str(route_choice),
         # "--max-iterations", str(max_iterations),
         # "--taz-param", "weight", # Parameter key(s) defining source (and sink) taz
         ]

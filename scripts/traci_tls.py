@@ -29,7 +29,8 @@ CONTROLLED_TLS = {
 SUMO_CONFIG = [
     "sumo",
     "-c",
-    "/home/fullsuper/irene/dtSumo/scripts/output/config/francia_peschiera_MAROUTER_with_TLS_AM.sumocfg",
+    "/media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/config/francia_peschiera_MAROUTER_with_TLS_DAY_scaled1.0.sumocfg",
+    # "-e", str(3600*24)
 ]
 
 traci.start(SUMO_CONFIG)

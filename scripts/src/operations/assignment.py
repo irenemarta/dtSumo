@@ -6,12 +6,12 @@ TuST section 4 routing logic applied by this script:
 
 4.2  Traffic Assignment macroscopico
 -> run_sue_feedback_cycle(): iterative SUE assignment with real-travel-time
-   feedback (marouter -> sumo -> edgeData -> marouter -> ...), n_rounds times
+feedback (marouter -> sumo -> edgeData -> marouter -> ...), n_rounds times
 -> filter_short_flows() removes trips that are not long enough
 
 4.3  Extension O'/D' using duarouter, applied ONCE after the feedback cycle
-     has converged (not on every round, to keep the O'/D' random sampling
-     from adding noise to the round-to-round comparison).
+    has converged (not on every round, to keep the O'/D' random sampling
+    from adding noise to the round-to-round comparison).
 """
 
 import math
@@ -178,7 +178,7 @@ def run_feedback_cycle(
     NB scouting_duration restricts simulation end to begin + scouting_duration.
     """
     
-    METHOD = SUE_PARAMS['method']
+    METHOD = INCREMENTAL_PARAMS['method']
     work_dir = cfg.WORKDIRS[scenario][period] / METHOD
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -219,9 +219,9 @@ def run_feedback_cycle(
             end=period_end,
             weight_files=str(prev_weight_file) if prev_weight_file else None,
             extra_args=["-l", str(work_dir / f"marouter_r{round_idx}.log"), 
-                        "--weight-adaption", str(0.8),
+                        "--weight-adaption", str(0.4),
                         "--seed", "42"],
-            **SUE_PARAMS,
+            **INCREMENTAL_PARAMS,
         )
         print(f"\tMacroscopic assignment (round {round_idx}) saved here: {routes_macro}")
 
@@ -253,7 +253,8 @@ def run_feedback_cycle(
             begin=period_begin,
             end=sumo_end,
             detectors=cfg.DETECTORS[scenario][period],
-            edgedata=edgedata_additional,  # file additional CHE DICE a SUMO di scrivere
+            edgedata=edgedata_additional,
+            vtype=cfg.VTYPE,
         )
 
         sumocfg_path = cfg.CFG_DIR / cfg_name
@@ -309,6 +310,7 @@ def build_final_sumocfg(
         end=cfg.PERIODS[period]["end"],
         detectors=detectors_file,
         edgedata=edgedata_additional,
+        vtype=cfg.VTYPE,
     )
     print(f"\t\t.sumocfg [{scenario}/{period}] scritto puntando a: {routes_final}")
 
@@ -367,11 +369,13 @@ def run_macroscopic_assignment_day(
         path_penalty=15.0,
         weights_priority=0.0,
         max_alternatives=10,
-        max_iterations=50,
+        max_iterations=100,
         tolerance=0.01,
         weights_tls=tls_penalty,
         begin=0,
         end=24 * 3600,
+        extra_args=["--weight-adaption", str(0.4),
+                    "--seed", "42"]
     )
     print(f"\t\tDay macroscopic assignment run in {routes_macro}")
 
@@ -404,7 +408,7 @@ def build_sumocfg_day(
         output_sumo=cfg.SIM_OUT[scenario]["DAY"],
         config_name=f"francia_peschiera_MAROUTER_{scenario[3:]}_DAY_scaled{scale}.sumocfg",
         teleport="100",
-        meso=False,
+        meso=True,
         setting=cfg.VIEW,
     ).build(
         method="marouter",
@@ -413,6 +417,7 @@ def build_sumocfg_day(
         end=86400,
         detectors=detectors_file,
         edgedata=edgedata_additional,
+        vtype=cfg.VTYPE,
     )
     print(f"\t\t.sumocfg [{scenario}/DAY] scritto puntando a: {routes_final}")
 

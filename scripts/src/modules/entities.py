@@ -17,7 +17,7 @@ class CfgAttributes:
     teleport: Union[int, str] = "300"
     setting: Optional[Path] = None
 
-    def build(self, method: str, begin: int, end: int, taz: str = None, tazrel: str = None, detectors: str = None, edgedata: str = None):        
+    def build(self, method: str, begin: int, end: int, taz: str = None, tazrel: str = None, detectors: str = None, edgedata: str = None, vtype: str = None):        
 
         add_files: List[str] = []
         if taz:
@@ -28,6 +28,8 @@ class CfgAttributes:
             add_files.append(str(detectors))
         if edgedata:
             add_files.append(str(edgedata))
+        if vtype:
+            add_files.append(str(vtype))
 
         self.output_sumo.mkdir(parents=True, exist_ok=True)
         self.output_cfg.mkdir(parents=True, exist_ok=True)
@@ -54,11 +56,11 @@ class CfgAttributes:
         if self.meso:
             cmd += [
                 "--mesosim",
-                "--meso-recheck", "10", # to delay traffic flow into a fully occupied segment. 
-                "--meso-minor-penalty", "1.5",
-                "--meso-junction-control",
-                "--meso-tls-penalty", "10",
-                "--meso-jam-threshold", "0.5",
+                # "--meso-recheck", "10", # to delay traffic flow into a fully occupied segment. 
+                # "--meso-minor-penalty", "1.5",
+                "--meso-junction-control.limited",
+                # "--meso-tls-penalty", "10",
+                # "--meso-jam-threshold", "0.5",
             ]
         else:
             cmd += [
