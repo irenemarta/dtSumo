@@ -311,10 +311,10 @@ def main():
                 "ista": os.getenv("ISTA_URL"),
                 "istc": os.getenv("ISTC_URL"),
             }
-            anagrafica, _ = _get_pasta_data(
+            anagraphics, _ = _get_pasta_data(
                 connection_strings["ista"], connection_strings["istc"]
             )
-            gdf_sens = _create_geopandas_df(anagrafica)
+            gdf_sens = _create_geopandas_df(anagraphics)
             sensor_lane_lookup = _build_sensor_lane_lookup(gdf_sens, lanes_data)
             lookup_path.parent.mkdir(parents=True, exist_ok=True)
             sensor_lane_lookup.to_csv(lookup_path, index=False)

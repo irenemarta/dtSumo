@@ -2,20 +2,26 @@
 CONFIG.PY
 Path Management for SUMO Traffic Assignment Project
 """
-
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv() # reads variables from a .env file and sets them in os.environ
 
 # Main roots
-# HACK: change BASE_PATH with the correct project path
-BASE_PATH = Path("/media/fullsuper/ExternalDisk1/irene/dtSumo")
+# override via DTSUMO_BASE_PATH in .env (see .env.example) for machine specific paths.
+
+BASE_PATH = Path(os.getenv("DTSUMO_BASE_PATH", "/media/fullsuper/ExternalDisk1/irene/dtSumo"))
 SCRIPTS_ROOT = BASE_PATH / "scripts"
 DATA_PATH = BASE_PATH / "data"
 OUTPUT_BASE = SCRIPTS_ROOT / "output"
 OUTPUT_DASHBOARDS = OUTPUT_BASE / "dashboards"
-IMAGES = OUTPUT_BASE / "img"
 SENS_DATA_FOLDER = DATA_PATH / "sensors"
 SENS_LANE_LOOKUP = DATA_PATH / "sens_lanes_match.csv"
 
+# Graphic outputs
+IMAGES = OUTPUT_BASE / "img"
+IMAGES_MESO_VALIDATION = IMAGES / "meso_validation"
 VIEW = SCRIPTS_ROOT / "views/vehicles.view.xml"
 
 # Inputs
