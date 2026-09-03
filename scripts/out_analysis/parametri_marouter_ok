@@ -1,0 +1,70 @@
+PARAMETERS (totale round utilizzati: 6):
+/usr/share/sumo/bin/marouter 
+-n /media/fullsuper/ExternalDisk1/irene/dtSumo/data/raw/francia_peschiera_passenger.net.xml 
+-o /media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/marouter-workdir/MA_with_TLS_DAY/iterative/marouter_output.rou.xml 
+-r /media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/marouter-workdir/MA_with_TLS_DAY/iterative/od_trips_r5.odtrips.xml 
+--assignment-method incremental 
+--routing-algorithm dijkstra 
+--paths 5 
+--paths.penalty 15.0 
+--max-alternatives 10 
+--ignore-errors true 
+--weights.expand true 
+--weights.tls-penalty 5.0 
+--weights.priority-factor 0.0 
+--vtype passenger 
+--additive-traffic true 
+--netload-output /media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/marouter-workdir/MA_with_TLS_DAY/iterative/netload_r5.xml 
+--weight-files /media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/marouter-workdir/MA_with_TLS_DAY/iterative/edge_weights_r5.xml 
+--weight-attribute traveltime 
+--scale 1.0 
+--route-choice-method logit 
+--max-iterations 100 
+-a /media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/additionals/francia_peschiera_TAZ.taz.xml,/media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/additionals/Det_MA_with_TLS/detectors_MA_with_TLS_DAY.add.xml,/media/fullsuper/ExternalDisk1/irene/dtSumo/data/raw/VType.add.xml 
+-b 0 -e 86400 
+-l /media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/marouter-workdir/MA_with_TLS_DAY/iterative/marouter_r5.log 
+--weight-adaption 0.4 
+--seed 42
+Success.
+
+sumo config:
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-08-30T19:35:55.915323+01:00 by Eclipse SUMO sumo 1.26.0
+-->
+
+<sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <input>
+        <net-file value="/media/fullsuper/ExternalDisk1/irene/dtSumo/data/raw/francia_peschiera_passenger.net.xml"/>
+        <route-files value="/media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/marouter-workdir/MA_with_TLS_DAY/marouter_output_extended.rou.xml"/>
+        <additional-files value="/media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/additionals/francia_peschiera_TAZ.taz.xml,/media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/additionals/Det_MA_with_TLS/detectors_MA_with_TLS_DAY.add.xml,/media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/marouter-workdir/MA_with_TLS_DAY/edgedata_config_final.add.xml,/media/fullsuper/ExternalDisk1/irene/dtSumo/data/raw/VType.add.xml"/>
+    </input>
+
+    <output>
+        <summary-output value="/media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/simulation-out/out_MA_with_TLS/Summary_marouter_scaled1.0.xml"/>
+        <tripinfo-output value="/media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/simulation-out/out_MA_with_TLS/TripInfo_marouter_scaled1.0.xml"/>
+        <vehroute-output value="/media/fullsuper/ExternalDisk1/irene/dtSumo/scripts/output/simulation-out/out_MA_with_TLS/VehTraces_marouter_scaled1.0.xml"/>
+        <vehroute-output.exit-times value="true"/>
+        <vehroute-output.sorted value="true"/>
+        <vehroute-output.route-length value="true"/>
+        <vehroute-output.write-unfinished value="true"/>
+    </output>
+
+    <time>
+        <begin value="0"/>
+        <end value="86400"/>
+    </time>
+
+    <processing>
+        <time-to-teleport value="300"/>
+        <tls.all-off value="false"/>
+    </processing>
+
+    <mesoscopic>
+        <mesosim value="true"/>
+        <meso-edgelength value="612.62"/>
+        <meso-junction-control.limited value="true"/>
+    </mesoscopic>
+
+</sumoConfiguration>
