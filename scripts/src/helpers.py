@@ -6,37 +6,28 @@
 A compilation of helper functions that are frequently used in this project.
 """
 
-# For xml manipulation
-import xml.etree.ElementTree as ET
-
-# For dataframe manipulation
-import pandas as pd
 
 import os
 from typing import Dict, List
 from pathlib import Path
 
-# For geolocation
+import pandas as pd
+import xml.etree.ElementTree as ET
+
 from geopy.distance import distance
 from geopy.geocoders import Nominatim
 from geopy.point import Point
 
 
-""" 
-bbox() computes the coordinates in lat/long format at a due distance from to a specific point od interest. 
-
-It leverages the library called geopy for geolocation and coordinate coding.
-The program takes a radius as input (in meters) and computes the bounding box coordinates as output.
-
-The coordinates will be given as input to JOSM in a second step of the analysis.
-
-
-filtering() is a second function that uses bbox() to mask a larger dataframe, to focus on Piazza Baldissera
-
-"""
-
-
 def bbox():
+    """
+    Computes the coordinates in lat/long format at a due distance from to a specific point od interest.
+    It leverages geopy for geolocation and coordinate coding.
+    Input: radius (in meters) 
+    Returns bounding box coordinates.
+
+    The coordinates will be given as input to JOSM in a second step of the analysis.
+    """
     # Find geo-coordinates
     geolocator = Nominatim(user_agent="sumo_map_extractor")
     location = geolocator.geocode(
@@ -64,8 +55,8 @@ def bbox():
     return lat_min, lon_min, lat_max, lon_max
 
 
-# Filtering
-def filtering(df):
+def _filter_by_bbox(df):
+    """Mask a df to extract data related to a restricted bbox."""
     lat1, lon1, lat2, lon2 = bbox()
     mask = (
         df["From Latitude"].between(lat1, lat2, inclusive="both")
@@ -73,34 +64,24 @@ def filtering(df):
     ) | (
         df["To Latitude"].between(lat1, lat2, inclusive="both")
         & df["To Longitude"].between(lon1, lon2, inclusive="both")
-    )  # 1|2 = 1 or 2, inlcusive to use closed bounderies
+    )
     filtered_db = df[mask]
     print(f"Lines in the filtered CSV: {len(filtered_db)}")
     return filtered_db
 
-
-# Indentation function using etree module
-
-
 # Function to save the xml files in the output directory
 def format_xml(xml, out_dir):
-    # Create the output directory (if it doesn't exist yet)
     os.makedirs(out_dir, exist_ok=True)
 
-    # Download the files and their content in the output directory
     for filename, root in xml.items():
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ", level=0)
-        # Write the entire hierarchy tree in a file
         tree.write(
             os.path.join(out_dir, filename), encoding="utf-8", xml_declaration=True
         )
-
         print(f"{filename} successfully downloaded in {out_dir}")
 
 
-"""Parsing functions are used to read xml file when needed"""
-# Parse node file (.nod.xml)
 def parse_nodes(nod_file: Path):
     tree = ET.parse(nod_file)
     root = tree.getroot()
@@ -113,13 +94,12 @@ def parse_nodes(nod_file: Path):
         except ValueError:
             continue
         node_type = node.attrib.get("type", "")
-        # Dizionario tipo key = (lat, lon) : value = {"id":.., "type":..}
+        # {(lat, lon) : {"id":.., "type":..}}
         coord_to_node[(lat, lon)] = {"id": node_id, "type": node_type}
     print(f"Nodes in .nod.xml: {len(coord_to_node)}")
     return coord_to_node
 
 
-# Parse edge file
 def parse_edges(edg_file: Path) -> Dict:
     tree = ET.parse(edg_file)
     root = tree.getroot()
@@ -220,7 +200,6 @@ def parse_tll(xml_file: Path):
             "phases": [],
             "connections": {} 
         }
-
         for p in tl.findall('phase'):
             tll_data["phases"].append({
                 "duration": p.attrib.get('duration', ''),
@@ -229,15 +208,12 @@ def parse_tll(xml_file: Path):
         
         tlLogic[tl_id] = tll_data
 
-    # 2. Poi passiamo per le connessioni
     for conn in root.findall("connection"):
         tl_id = conn.attrib.get("tl")
-        
-        # Se la connessione è controllata da un semaforo che abbiamo censito
+        # For connection managed by traffic ligth logic
         if tl_id and tl_id in tlLogic:
             link_idx = conn.attrib.get("linkIndex")
-            
-            # Salviamo i dettagli della connessione mappati sul linkIndex
+
             conn_info = {
                 "from": conn.attrib.get("from"),
                 "to": conn.attrib.get("to"),
@@ -246,7 +222,7 @@ def parse_tll(xml_file: Path):
                 "linkIndex": int(link_idx)
             }
             
-            # Un linkIndex può controllare più connessioni (es. una svolta a destra e dritto insieme)
+            # NB: one linkIndex can manage more than one connection
             if link_idx not in tlLogic[tl_id]["connections"]:
                 tlLogic[tl_id]["connections"][link_idx] = []
             
@@ -255,16 +231,15 @@ def parse_tll(xml_file: Path):
     return tlLogic
 
 
-""" To define useful values (for the database) """
-def get_opposite_direction(edge_id, edge_data, edges):
+def _get_opposite_direction(edge_id, edge_data, edges):
+    """ Extract opposite direction for a two-way type edge. """
     from_node = edge_data.get("from")
     to_node = edge_data.get("to")
 
     # First logic: check for "-"
     if (
         edge_id[0] == "-"
-    ):  # The startswith() method returns True if the string starts with the specified value, otherwise False.
-        """The lstrip() method removes any leading characters"""
+    ):
         opposite_id = edge_id.lstrip("-")
         if opposite_id in edges:
             return opposite_id
@@ -282,11 +257,11 @@ def get_opposite_direction(edge_id, edge_data, edges):
             if other_from == to_node and other_to == from_node:
                 return other_edge_id
 
-    return None  # for oneway cases
+    return None  # oneway cases
 
 
 
-########### ODS
+# ODS
 def _process_multiple_ods(od_path: Path | list | str, out_path: Path, min_flow: float = 0.5) -> Dict[Path, pd.DataFrame]:
     ods_cleaned = []
     # paths = [od_path] if isinstance(od_path, Path) else od_path
@@ -331,9 +306,7 @@ def _process_multiple_ods(od_path: Path | list | str, out_path: Path, min_flow: 
                 continue
             if flow < min_flow:
                 continue
-            # f_taz, to_taz, flow = info[0], info[1], float(info[2])
-            # if flow < 0:
-            #     continue
+            
             flow = max(flow, min_flow)
             flow_cleaned.append(f"{info[0]}\t{info[1]}\t{flow:.2f}\n")
 
@@ -401,7 +374,6 @@ def write_taz_relations_24h(
 ):
     output_path.mkdir(parents=True, exist_ok=True)
     taz_relations_file = output_path / "full_day.TAZREL.add.xml"
-    
     
     hour_flows = {
         hour: next(iter(_read_multiple_ods(path).values()))

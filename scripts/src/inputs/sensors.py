@@ -12,36 +12,30 @@ The script is structured as follows:
 3. Data aggregation
 4. Definition of functions to plot and compare data
 5. SUMO output (summary.xml) analysis and dashboard creation.
+
+Data is organised following the DataFrameSchemaPasta/DataFrameSchemaMerge.
+Take hourly (count, speed) observations for one sensor across many days.
 """
 
-# For data encryption and environment variables
 import os
 from dotenv import load_dotenv
-import scripts.src.inputs.config as cfg
-
-# Typing
-from numpy import float64
-from typing import List, Tuple
-
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
 
-# For georeferenced plots
+from numpy import float64
+from typing import List, Tuple
+import matplotlib.pyplot as plt
+import seaborn as sns
 import geopandas as gpd
 import contextily as cx
 import matplotlib.pyplot as plt
 
-# For data download from PASTA
-from scripts.src.operations.connections import _get_pasta_data
-
-# Check data integrity
+import pandas as pd
 import pandera.pandas as pa
 from pandera.typing import Series
 
+from scripts.src.operations.connections import _get_pasta_data
+import scripts.src.inputs.config as cfg
 
-# Global variables
 sns.set_theme(style="whitegrid")
 DATE_FORMAT = "%Y-%m-%d"
 HOUR_FORMAT = "{:02d}:00"
@@ -479,20 +473,24 @@ def main():
     print("\nANALYSIS OF TRAFFIC DATA FROM PASTA DATABASE AND BRIDGE INTERFACE")
     file_bridge = cfg.BRIDGE_CSV
     output_dir = cfg.OUTPUT_DIR_AM_SENS_DUA
+    sensor_folder = cfg.SENS_DATA_FOLDER
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(output_dir)
-
-    load_dotenv()  # reads variables from a .env file and sets them in os.environ
-    connection_strings = {
-        "ista": os.getenv("ISTA_URL"),
-        "istc": os.getenv("ISTC_URL"),
-    }
-    # "server:driver://username:psw@host"
 
     bridge_data, dfp_bridge = bridge_db(file_bridge)
-    df_anagraph, df_flows = _get_pasta_data(
-        connection_strings["ista"], connection_strings["istc"]
-    )
+    if sensor_folder is not None:
+        anagraphics = pd.read_csv(Path(data_folder / "anagraphics_fp.csv"))
+        flows = pd.read_csv(Path(data_folder / "flows_fp.csv")) 
+    else:
+        load_dotenv()  # reads variables from a .env file and sets them in os.environ
+        connection_strings = {
+            "ista": os.getenv("ISTA_URL"),
+            "istc": os.getenv("ISTC_URL"),
+        }
+        # "server:driver://username:psw@host"
+            df_anagraph, df_flows = _get_pasta_data(
+                connection_strings["ista"], connection_strings["istc"]
+            )
+    
     df_pasta = pasta_db_merge(df_anagraph, df_flows)
 
     gdf_sensors = gpd.GeoDataFrame(

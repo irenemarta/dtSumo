@@ -132,7 +132,7 @@ class AssignmentContext:
     """
     Bundles the network artifacts that are computed once per pipeline run
     (main()) and then reused, unchanged, across every (scenario, period)
-    combination: the loaded SUMO net, the TAZ file, the edge->TAZ lookup
+    combination. It includes the loaded SUMO net, the TAZ file, the edge->TAZ lookup
     and the per-TAZ residential/service candidate edges.
     """
     net: "sumolib.net.Net"
