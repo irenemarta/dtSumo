@@ -203,11 +203,11 @@ def plot_sens_position(gdf: gpd.GeoDataFrame, output_dir: Path) -> None:
     gdf.plot(ax=ax, marker="o", color="blue", markersize=60)
 
     ax.set_axis_off()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+
     cx.add_basemap(ax, source=cx.providers.OpenStreetMap.Mapnik)
     # point labels
     for x, y, label in zip(
@@ -479,7 +479,7 @@ def main():
     bridge_data, dfp_bridge = bridge_db(file_bridge)
     if sensor_folder is not None:
         anagraphics = pd.read_csv(Path(data_folder / "anagraphics_fp.csv"))
-        flows = pd.read_csv(Path(data_folder / "flows_fp.csv")) 
+        flows = pd.read_csv(Path(data_folder / "flows_fp.csv"))
     else:
         load_dotenv()  # reads variables from a .env file and sets them in os.environ
         connection_strings = {
@@ -487,10 +487,10 @@ def main():
             "istc": os.getenv("ISTC_URL"),
         }
         # "server:driver://username:psw@host"
-            df_anagraph, df_flows = _get_pasta_data(
-                connection_strings["ista"], connection_strings["istc"]
-            )
-    
+        df_anagraph, df_flows = _get_pasta_data(
+            connection_strings["ista"], connection_strings["istc"]
+        )
+
     df_pasta = pasta_db_merge(df_anagraph, df_flows)
 
     gdf_sensors = gpd.GeoDataFrame(

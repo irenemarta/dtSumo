@@ -611,6 +611,7 @@ def run_marouter(
         "--additive-traffic", "true",
         # "--capacities.default", "true", --> provato ma porta a tempi di scarico/viaggio e teleport più alti
         #"--verbose"
+        # "--seed", str(cfg.SEED),
         
         # "--max-iterations", str(max_iterations),
         # "--taz-param", "weight", # Parameter key(s) defining source (and sink) taz

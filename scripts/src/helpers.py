@@ -275,6 +275,14 @@ def _process_multiple_ods(od_path: Path | list | str, out_path: Path, min_flow: 
         paths = [Path(p) for p in od_path]
     
     for p in paths:
+        # skip if existent
+        final_file_path = out_path / p.name
+        os.makedirs(out_path, exist_ok=True)
+
+        if final_file_path.exists() and final_file_path.stat().st_size > 0:
+            ods_cleaned.append(final_file_path)
+            continue
+        
         flow_cleaned = []
         with open(p, 'r', encoding='utf-8') as f:
             lines = f.readlines()

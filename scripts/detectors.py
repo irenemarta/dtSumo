@@ -170,7 +170,7 @@ def generate_all_detectors(
             f.write(
                 f'  <e1Detector id="{detector_id}" lane="{lane_id}" '
                 f'pos="{pos_middle}" freq="{frequence}" '
-                f'file="{file_value}"/>\n'
+                f'file="{file_value}" friendlyPos="true" />\n'
             )
 
         f.write("</additional>\n")
@@ -190,7 +190,7 @@ def _get_det_output_data(file):
 
     df_det_data = (
         pd.DataFrame(data)
-        .apply(pd.to_numeric, errors="ignore")
+        .apply(pd.to_numeric, errorPs="ignore")
         .assign(
             time_dt=lambda x: abs(x["begin"] - x["end"]),
             cum_time=lambda x: x["time_dt"].cumsum(),

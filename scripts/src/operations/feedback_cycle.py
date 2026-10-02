@@ -6,7 +6,7 @@ feedback (marouter -> sumo -> edgeData -> marouter -> ...), n_rounds times
 
 """
 
-import subprocess
+import subprocess, sumolib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -50,7 +50,7 @@ INCREMENTAL_PARAMS = dict(
     path_penalty=15.0,
     weights_priority=0.0,
     max_iterations=100,
-    weight_adaption=0.8,
+    weight_adaption=0.8,  # 0.8 no tls, 0.4 tls
 )
 
 # freq (secondi) del dump edgeData usato per il feedback SUE.
@@ -75,7 +75,9 @@ def _edge_weights_path(work_dir: Path, round_idx: int) -> Path:
     return work_dir / f"edge_weights_r{round_idx}.xml"
 
 
-def _write_edgedata_additional(path: Path, output_file: Path, freq: int = EDGEDATA_FREQ) -> Path:
+def _write_edgedata_additional(
+    path: Path, output_file: Path, freq: int = EDGEDATA_FREQ
+) -> Path:
     """
     Writes an additional file for SUMO to produce an edgeData dump in output_file path.
     To be added to SUMO configuration using -a flag.
@@ -89,7 +91,9 @@ def _write_edgedata_additional(path: Path, output_file: Path, freq: int = EDGEDA
     return path
 
 
-def load_traveltimes(path: Path, aggregation: str = "weighted_mean") -> Dict[str, float]:
+def load_traveltimes(
+    path: Path, aggregation: str = "weighted_mean"
+) -> Dict[str, float]:
     """
     Aggregates multi-interval edgeData dumps by edge.
     """
@@ -117,6 +121,61 @@ def load_traveltimes(path: Path, aggregation: str = "weighted_mean") -> Dict[str
     return result
 
 
+def compute_closure_penalty(net: "sumolib.net.Net", edge_id: str, severity: float) -> float:
+    edge = net.getEdge(edge_id)
+    base_traveltime = edge.getLength() / edge.getSpeed()
+    return base_traveltime / max(severity, 1e-3)
+
+
+def build_closure_weight_file(
+    net: "sumolib.net.Net",
+    edge_id: str,
+    severity: float,
+    out_path: Path,
+    begin: int = 0,
+    end: int = 86400,
+) -> Path:
+    penalty_traveltime = compute_closure_penalty(net, edge_id, severity)
+
+    content = (
+        "<meandata>\n"
+        f'  <interval begin="{begin}" end="{end}">\n'
+        f'    <edge id="{edge_id}" traveltime="{penalty_traveltime:.2f}"/>\n'
+        "  </interval>\n"
+        "</meandata>\n"
+    )
+    out_path.write_text(content)
+
+    return out_path
+
+
+def apply_closure_penalty(
+    weight_file: Path,
+    edge_id: str,
+    penalty_traveltime: float,
+    sampled_seconds: float = 1.0,
+) -> None:
+    """
+    Riscrive (o inserisce) il traveltime dell'edge chiuso nel weight file
+    generato dal round appena concluso, così la penalità sopravvive ad ogni
+    round di feedback invece di essere sovrascritta dal tempo realmente
+    simulato (che non riflette la chiusura, essendo questa solo un costo di
+    routing, non una vera restrizione fisica dell'edge).
+    """
+    tree = ET.parse(weight_file)
+    root = tree.getroot()
+
+    for interval in root.findall("interval"):
+        edge_el = interval.find(f"./edge[@id='{edge_id}']")
+        if edge_el is None:
+            edge_el = ET.SubElement(interval, "edge")
+            edge_el.set("id", edge_id)
+        edge_el.set("traveltime", f"{penalty_traveltime:.2f}")
+        edge_el.set("sampledSeconds", f"{sampled_seconds:.2f}")
+
+    tree.write(weight_file)
+
+
 def run_feedback_cycle(
     scenario: str,
     period: str,
@@ -138,7 +197,7 @@ def run_feedback_cycle(
     taz_file = ctx.taz_file
     edge_taz_map = ctx.edge_taz_map
 
-    METHOD = INCREMENTAL_PARAMS['method']
+    METHOD = INCREMENTAL_PARAMS["method"]
     work_dir = cfg.WORKDIRS[scenario][period] / METHOD
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -153,7 +212,7 @@ def run_feedback_cycle(
     else:
         sumo_end = period_end
 
-    prev_weight_file: Optional[Path] = None # no weigths for the first round
+    prev_weight_file: Optional[Path] = None  # no weigths for the first round
     routes_final: Optional[Path] = None
 
     for round_idx in range(n_rounds):
@@ -175,12 +234,19 @@ def run_feedback_cycle(
             begin=period_begin,
             end=period_end,
             weight_files=str(prev_weight_file) if prev_weight_file else None,
-            extra_args=["-l", str(work_dir / f"marouter_r{round_idx}.log"), 
-                        "--weight-adaption", str(INCREMENTAL_PARAMS['weight_adaption']),
-                        "--seed", "42"],
+            extra_args=[
+                "-l",
+                str(work_dir / f"marouter_r{round_idx}.log"),
+                "--weight-adaption",
+                str(INCREMENTAL_PARAMS["weight_adaption"]),
+                "--seed",
+                cfg.SEED,
+            ],
             **INCREMENTAL_PARAMS,
         )
-        print(f"\tMacroscopic assignment (round {round_idx}) saved here: {routes_macro}")
+        print(
+            f"\tMacroscopic assignment (round {round_idx}) saved here: {routes_macro}"
+        )
 
         routes_clean = filter_short_flows(
             routes_macro,
@@ -217,7 +283,7 @@ def run_feedback_cycle(
         sumocfg_path = cfg.CFG_DIR / cfg_name
 
         cmd = ["sumo", "-c", str(sumocfg_path), "--end", str(sumo_end)]
-        
+
         print(f"\tSUMO simulating round n°{round_idx}...")
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -226,17 +292,22 @@ def run_feedback_cycle(
             print("STDOUT:", e.stdout)
             print("STDERR:", e.stderr)
             raise
-        
+
         if not next_weight_file.exists():
             raise RuntimeError(
-                Fore.RED + f"ERROR: could not generate edgeData for round {round_idx}: {next_weight_file}"
+                Fore.RED
+                + f"ERROR: could not generate edgeData for round {round_idx}: {next_weight_file}"
             )
-            
-            
-        print(f"\tRound {round_idx} completed. Weigths for next round{next_weight_file}")
+
+        print(
+            f"\tRound {round_idx} completed. Weigths for next round{next_weight_file}"
+        )
         prev_weight_file = next_weight_file
 
-    print(Fore.GREEN + f"\n[{scenario}/{period}] Cycle successfully completed: {n_rounds} rounds.")
+    print(
+        Fore.GREEN
+        + f"\n[{scenario}/{period}] Cycle successfully completed: {n_rounds} rounds."
+    )
     return routes_final
 
 
@@ -261,7 +332,7 @@ def build_final_sumocfg(
         config_name=f"francia_peschiera_MAROUTER_{scenario[3:]}_{period}.sumocfg",
         meso=True,
         setting=cfg.VIEW,
-        teleport="300"
+        teleport="300",
     ).build(
         method="marouter",
         taz=taz_file,
@@ -309,7 +380,8 @@ def run_macroscopic_assignment_day(
     trips_output = work_dir / "od_trips_file.odtrips.xml"
 
     print(
-        Fore.CYAN + f"[4.2-DAY] MAROUTER — scenario={scenario} ({len(day_matrices)} matrices, scale={scale})..."
+        Fore.CYAN
+        + f"[4.2-DAY] MAROUTER — scenario={scenario} ({len(day_matrices)} matrices, scale={scale})..."
     )
 
     routes_macro = run_marouter(
@@ -333,8 +405,12 @@ def run_macroscopic_assignment_day(
         weights_tls=tls_penalty,
         begin=0,
         end=24 * 3600,
-        extra_args=["--weight-adaption", str(INCREMENTAL_PARAMS['weight_adaption']),
-                    "--seed", "42"]
+        extra_args=[
+            "--weight-adaption",
+            str(INCREMENTAL_PARAMS["weight_adaption"]),
+            "--seed",
+            cfg.SEED,
+        ],
     )
     print(f"\t\tDay macroscopic assignment run in {routes_macro}")
 
@@ -379,44 +455,53 @@ def build_sumocfg_day(
         vtype=cfg.VTYPE,
     )
     print(f"\t\t.sumocfg [{scenario}/DAY] output in: {routes_final}")
-    
-    
+
+
 # STEP 4.2-DAY (iterativa) — stesso ciclo di feedback di AM/PM, ma sulle 24
+
 
 def run_macroscopic_assignment_day_iterative(
     scenario: str,
     taz_file: Path,
     n_rounds: int = 3,
     scale: float = DEFAULT_DAY_SCALE,
+    closure_id: Optional[str] = None, # for what-if scenarios
+    initial_weight_file: Optional[Path] = None,
+    detectors_file: Optional[Path] = None, # parallelisation (override of cfg.DETECTORS[scenario]["DAY"])
+    # to overwrite computed travel times with closure travel times at each round
+    closure_edge_id: Optional[str] = None,
+    closure_penalty_traveltime: Optional[float] = None,
+    regenerate_matrices: bool = True,
 ) -> Path:
     """
-    La domanda (le 24 matrici orarie) viene generata una volta sola, non
-    ad ogni round — solo l'instradamento cambia round su round, non la
-    domanda in ingresso.
+    Same demand, different routing.
     """
     from scripts.src.inputs.dayODs import generate_hour_matrices
 
-    generate_hour_matrices(
-        od_morning=cfg.OD_MATRICES["AM"],
-        od_evening=cfg.OD_MATRICES["PM"],
-        output_dir_data=cfg.OD_MATRICES["DAY"] / f"scaled_{scale}",
-        input_data=cfg.SENS_DATA_FOLDER / "flows.csv",
-        demand_scale=scale,
-    )
+    if regenerate_matrices:
+        generate_hour_matrices(
+            od_morning=cfg.OD_MATRICES["AM"],
+            od_evening=cfg.OD_MATRICES["PM"],
+            output_dir_data=cfg.OD_MATRICES["DAY"] / f"scaled_{scale}",
+            input_data=cfg.SENS_DATA_FOLDER / "flows.csv",
+            demand_scale=scale,
+        )
     data_dir = cfg.OD_MATRICES["DAY"] / f"scaled_{scale}"
     day_matrices = sorted(data_dir.glob("h*.mtx"))
     if not day_matrices:
         raise RuntimeError(f"No file h*.mtx found in {data_dir}")
 
     work_dir = cfg.WORKDIRS[scenario]["DAY"] / "iterative"
+    if closure_id is not None:
+        work_dir = work_dir / f"closure_{closure_id}_seed{cfg.SEED}"
     work_dir.mkdir(parents=True, exist_ok=True)
 
     edge_taz_map = build_edge_to_taz(taz_file)
     tls_variant = _tls_variant_of(scenario)
     tls_penalty = TLS_PENALTY_BY_VARIANT[tls_variant]
-    detectors_file = cfg.DETECTORS[scenario]["DAY"]
+    detectors_file = detectors_file or cfg.DETECTORS[scenario]["DAY"] # override or default
 
-    prev_weight_file: Optional[Path] = None
+    prev_weight_file: Optional[Path] = initial_weight_file
     routes_final: Optional[Path] = None
 
     for round_idx in range(n_rounds):
@@ -433,6 +518,7 @@ def run_macroscopic_assignment_day_iterative(
             trips_output=trips_output,
             additional_files=[detectors_file, cfg.VTYPE],
             netload_output=netload_output,
+            data_dir=cfg.OD_MATRICES["DAY"] / f"scaled_{scale}",
             method="incremental",
             route_choice="logit",
             logit_theta=0.3,
@@ -447,11 +533,17 @@ def run_macroscopic_assignment_day_iterative(
             begin=0,
             end=24 * 3600,
             weight_files=str(prev_weight_file) if prev_weight_file else None,
-            extra_args=["-l", str(work_dir / f"marouter_r{round_idx}.log"),
-                        "--weight-adaption", str(INCREMENTAL_PARAMS['weight_adaption']),
-                        "--seed", "42"],
+            extra_args=[
+                "-l",
+                str(work_dir / f"marouter_r{round_idx}.log"),
+                "--weight-adaption",
+                str(INCREMENTAL_PARAMS["weight_adaption"]),
+                "--seed", str(cfg.SEED),
+            ],
         )
-        print(f"\tDay macroscopic assignment (round {round_idx}) saved here: {routes_macro}")
+        print(
+            f"\tDay macroscopic assignment (round {round_idx}) saved here: {routes_macro}"
+        )
 
         routes_clean = filter_short_flows(
             routes_macro,
@@ -466,7 +558,7 @@ def run_macroscopic_assignment_day_iterative(
         edgedata_additional = work_dir / f"edgedata_config_r{round_idx}.add.xml"
         _write_edgedata_additional(edgedata_additional, next_weight_file)
 
-        cfg_name = f"francia_peschiera_DAYITER_{scenario[3:]}_r{round_idx}.sumocfg"
+        cfg_name = f"francia_peschiera_DAYITER_{scenario[3:]}_r{round_idx}_seed{cfg.SEED}.sumocfg"
         CfgAttributes(
             net=cfg.NET_FILE,
             routes=routes_final,
@@ -484,6 +576,7 @@ def run_macroscopic_assignment_day_iterative(
             detectors=detectors_file,
             edgedata=edgedata_additional,
             vtype=cfg.VTYPE,
+            seed=cfg.SEED,
         )
 
         sumocfg_path = cfg.CFG_DIR / cfg_name
@@ -502,7 +595,14 @@ def run_macroscopic_assignment_day_iterative(
                 f"edgeData non generato per il round {round_idx}: {next_weight_file}"
             )
 
-        print(f"\tRound {round_idx} completo. Pesi per il prossimo round: {next_weight_file}")
+        if closure_edge_id is not None:                      # <-- nuovo blocco
+            apply_closure_penalty(
+                next_weight_file, closure_edge_id, closure_penalty_traveltime
+            )
+
+        print(
+            f"\tRound {round_idx} completo. Pesi per il prossimo round: {next_weight_file}"
+        )
         prev_weight_file = next_weight_file
 
     print(f"\n[{scenario}/DAY] Ciclo iterativo completato: {n_rounds} round eseguiti.")

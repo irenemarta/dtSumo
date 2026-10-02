@@ -3,22 +3,21 @@
 @author     Irene Marta
 @date       2026
 
-Useful visualisations
+Useful visualisations for SUMO simulation
 """
 
+import os
+import pandas as pd
+from pathlib import Path
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import xml.etree.ElementTree as ET
-import pandas as pd
-from pathlib import Path
-
-import programmi.config_OLD as cfg
-
-# from programmi.allDayOD import AM_PEAK, PM_PEAK
 
 from typing import Dict, List, TypedDict
-from typing import TypedDict
+import scripts.src.inputs.config as cfg
+
+# TODO: ADD VEHICLE ROUTES + TRIP INFO ANALYS 
 
 PALETTE_RUNNING = sns.color_palette("Blues", as_cmap=True)
 PALETTE_FAILURES = sns.color_palette("coolwarm", as_cmap=True)

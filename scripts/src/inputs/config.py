@@ -8,10 +8,12 @@ from dotenv import load_dotenv
 
 load_dotenv() # reads variables from a .env file and sets them in os.environ
 
+SEED=2026
+
 # Main roots
 # override via DTSUMO_BASE_PATH in .env (see .env.example) for machine specific paths.
 
-BASE_PATH = Path(os.getenv("DTSUMO_BASE_PATH", "/media/fullsuper/ExternalDisk1/irene/dtSumo"))
+BASE_PATH = Path(os.getenv("DTSUMO_BASE_PATH", "/mnt/external1/irene/dtSumo"))
 SCRIPTS_ROOT = BASE_PATH / "scripts"
 DATA_PATH = BASE_PATH / "data"
 OUTPUT_BASE = SCRIPTS_ROOT / "output"
@@ -26,6 +28,7 @@ VIEW = SCRIPTS_ROOT / "views/vehicles.view.xml"
 
 # Inputs
 NET_FILE = DATA_PATH / "raw/francia_peschiera_passenger.net.xml"
+NET_RESTRICTED = DATA_PATH / "raw/map_restricted.net.xml"
 ZONES = DATA_PATH / "raw" / "TOC_modello_Visum_CsoFrancia/SHP Zone/ZoneSVR_CsoFrancia.shp"
 CONNECTORS = DATA_PATH / "raw" / "TOC_modello_Visum_CsoFrancia/Domanda/IFER v03/NewConnectors_v03_connector.SHP"
 OD_DOMANDA = DATA_PATH / "raw" / "TOC_modello_Visum_CsoFrancia/Domanda"
@@ -97,7 +100,7 @@ DETECTORS = {
 ## Detector outputs -> DET_OUT['LOGIT']['AM']
 DET_OUT = {
     scenario: {
-        period: OUTPUT_DIR_ADD / f"Det_{scenario}/DetOut_{PERIODS[period]['label']}"
+        period: OUTPUT_DIR_ADD / f"Det_{scenario}/DetOut_{PERIODS[period]['label']}_seed{SEED}"
         for period in PERIODS
     } for scenario in SCENARIOS
 }
@@ -105,7 +108,7 @@ DET_OUT = {
 ## Simulation outputs -> SIM_OUT['LOGIT']['AM']
 SIM_OUT = {
     scenario: {
-        period: SUMO_OUTPUT / f"out_{scenario}"
+        period: SUMO_OUTPUT / f"out_{scenario}_seed{SEED}"
         for period in PERIODS
     } for scenario in SCENARIOS
 }
@@ -119,7 +122,7 @@ for period in PERIODS:
     # MA: TLS distinction
     for tls in TLS_VARIANTS:
         scenario_name = f"MA_{tls}"
-        WORKDIRS.setdefault(scenario_name, {})[period] = MAROUTER_WORKDIR / f"{scenario_name}_{period}"
+        WORKDIRS.setdefault(scenario_name, {})[period] = MAROUTER_WORKDIR / f"{scenario_name}_{period}_seed{SEED}"
 
 ## Route paths -> MAP_ROUTES_WORKDIR['LOGIT']['AM']
 MAP_ROUTES_WORKDIR = {}

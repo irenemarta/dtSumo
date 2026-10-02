@@ -38,6 +38,7 @@ class CfgAttributes:
         detectors: str = None,
         edgedata: str = None,
         vtype: str = None,
+        seed: Optional[int] = None,
     ):
 
         add_files: List[str] = []
@@ -78,6 +79,7 @@ class CfgAttributes:
             str(self.output_sumo / f"VehTraces_{suffix}.xml"),
             "--tripinfo-output",
             str(self.output_sumo / f"TripInfo_{suffix}.xml"),
+            # "--tls-state-output", "true",
             "--vehroute-output.exit-times",
             "true",
             "--vehroute-output.sorted",
@@ -87,6 +89,9 @@ class CfgAttributes:
             "--vehroute-output.write-unfinished",
             "true",
         ]
+        
+        if seed is not None:                       # 
+            cmd += ["--seed", str(seed)] 
 
         if self.meso:
             max_l = _get_edge_max_length(str(self.net))

@@ -14,31 +14,23 @@ The script is structured as follows:
 5. SUMO output (summary.xml) analysis and dashboard creation.
 """
 
-# For data encryption and environment variables
 import os
 from dotenv import load_dotenv
-import scripts.src.inputs.config as cfg
-
-# Typing
-from numpy import float64
 from typing import List, Tuple
+from pathlib import Path
+from numpy import float64
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from pathlib import Path
 
-# For georeferenced plots
 import geopandas as gpd
 import contextily as cx
-import matplotlib.pyplot as plt
-
-# For data download from PASTA
-from scripts.src.operations.connections import _get_pasta_data
-
-# Check data integrity
 import pandera.pandas as pa
 from pandera.typing import Series
+
+import scripts.src.inputs.config as cfg
+from scripts.src.operations.connections import _get_pasta_data
 
 
 # Global variables
