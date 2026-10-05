@@ -1,15 +1,11 @@
 """
-@file       helpers.py
-@author     Irene Marta
-@date       2026
-
 A compilation of helper functions that are frequently used in this project.
 """
-
 
 import os
 from typing import Dict, List
 from pathlib import Path
+from colorama import init, Fore
 
 import pandas as pd
 import xml.etree.ElementTree as ET
@@ -18,14 +14,11 @@ from geopy.distance import distance
 from geopy.geocoders import Nominatim
 from geopy.point import Point
 
+init(autoreset=True)
 
 def bbox():
     """
     Computes the coordinates in lat/long format at a due distance from to a specific point od interest.
-    It leverages geopy for geolocation and coordinate coding.
-    Input: radius (in meters) 
-    Returns bounding box coordinates.
-
     The coordinates will be given as input to JOSM in a second step of the analysis.
     """
     # Find geo-coordinates
@@ -56,7 +49,6 @@ def bbox():
 
 
 def _filter_by_bbox(df):
-    """Mask a df to extract data related to a restricted bbox."""
     lat1, lon1, lat2, lon2 = bbox()
     mask = (
         df["From Latitude"].between(lat1, lat2, inclusive="both")
@@ -69,10 +61,9 @@ def _filter_by_bbox(df):
     print(f"Lines in the filtered CSV: {len(filtered_db)}")
     return filtered_db
 
-# Function to save the xml files in the output directory
+
 def format_xml(xml, out_dir):
     os.makedirs(out_dir, exist_ok=True)
-
     for filename, root in xml.items():
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ", level=0)
@@ -107,8 +98,7 @@ def parse_edges(edg_file: Path) -> Dict:
     highway_service_count = 0
 
     for edge in root.findall("edge"):
-        # Ignore internal edges
-        if edge.attrib.get("function") == "internal":
+        if edge.attrib.get("function") == "internal": # ignore internal edges
             continue
 
         eid = edge.attrib.get("id", "")
@@ -121,7 +111,6 @@ def parse_edges(edg_file: Path) -> Dict:
         if type_edge == "highway.service":
             highway_service_count += 1
 
-        # Collect data for each edge
         edge_data = {
             "id": eid,
             "from": from_id,
@@ -135,7 +124,6 @@ def parse_edges(edg_file: Path) -> Dict:
             "shape": None,
         }
 
-        # Collect lane data for each edge
         lanes = edge.findall("lane")
         if lanes:
             lane_speeds = []
@@ -143,53 +131,33 @@ def parse_edges(edg_file: Path) -> Dict:
             for lane in lanes:
                 s = lane.attrib.get("speed")
                 l = lane.attrib.get("length")
-                """Devo usare la shape delle lane ognuna rappresenta un record diverso nel db"""
                 if s:
-                    try:
-                        lane_speeds.append(float(s))
-                    except ValueError:
-                        pass
+                    lane_speeds.append(float(s))
                 if l:
-                    try:
-                        lane_lengths.append(float(l))
-                    except ValueError:
-                        pass
-
-                # Add the obtained shape
+                    lane_lengths.append(float(l))
                 shape_str = lane.attrib.get("shape")
                 if shape_str:
-                    """NOTA: serve conversione da "lon1,lat1 lon2,lat2 ..." a [(lon1,lat1), (lon2,lat2), ...]"""
-                    try:
-                        coords = []
-                        for point in shape_str.strip().split():
-                            # The map() function executes a specified function for each item in an iterable.
-                            #   The item is sent to the function as a parameter.
-                            # SYNTAX: map(function, iterables)
-                            lon, lat = map(float, point.split(sep=","))
-                            coords.append((lon, lat))
-                        edge_data["shape"] = coords
-                    except Exception as e:
-                        print(f"Parsing error for edge {eid}: {e}")
-
-            # If the edge has no defined speed, get the average velocity on all its lanes
+                    coords = []
+                    for point in shape_str.strip().split():
+                        lon, lat = map(float, point.split(sep=","))
+                        coords.append((lon, lat))
+                    edge_data["shape"] = coords
+                    
             if not edge_data["speed"] and lane_speeds:
                 edge_data["speed"] = str(sum(lane_speeds) / len(lane_speeds))
-            # Same goes for lengths
             if not edge_data["length"] and lane_lengths:
                 edge_data["length"] = str(sum(lane_lengths) / len(lane_lengths))
 
-        # key = id, value = data
-        edges[eid] = edge_data
+        edges[eid] = edge_data  # key = id, value = data
 
     print(f"Edges in .edg.xml: {len(edges)}")
-    print(f"Type service edges: {highway_service_count} over {len(edges)}")
+    #print(f"Type service edges: {highway_service_count} over {len(edges)}")
     return edges
 
 
 def parse_tll(xml_file: Path):
     tree = ET.parse(xml_file)
     root = tree.getroot()
-    
     tlLogic = {}
 
     for tl in root.findall("tlLogic"):
@@ -210,7 +178,6 @@ def parse_tll(xml_file: Path):
 
     for conn in root.findall("connection"):
         tl_id = conn.attrib.get("tl")
-        # For connection managed by traffic ligth logic
         if tl_id and tl_id in tlLogic:
             link_idx = conn.attrib.get("linkIndex")
 
@@ -221,8 +188,6 @@ def parse_tll(xml_file: Path):
                 "toLane": conn.attrib.get("toLane"),
                 "linkIndex": int(link_idx)
             }
-            
-            # NB: one linkIndex can manage more than one connection
             if link_idx not in tlLogic[tl_id]["connections"]:
                 tlLogic[tl_id]["connections"][link_idx] = []
             
@@ -247,7 +212,6 @@ def _get_opposite_direction(edge_id, edge_data, edges):
     # Second logic: from/to swap
     if from_node and to_node:
         for other_edge_id, other_edge_data in edges.items():
-            # Skip current edge
             if other_edge_id == edge_id:
                 continue
 
@@ -275,10 +239,9 @@ def _process_multiple_ods(od_path: Path | list | str, out_path: Path, min_flow: 
         paths = [Path(p) for p in od_path]
     
     for p in paths:
-        # skip if existent
         final_file_path = out_path / p.name
         os.makedirs(out_path, exist_ok=True)
-
+        
         if final_file_path.exists() and final_file_path.stat().st_size > 0:
             ods_cleaned.append(final_file_path)
             continue
@@ -296,11 +259,11 @@ def _process_multiple_ods(od_path: Path | list | str, out_path: Path, min_flow: 
                 data.append(l)
         for line in data:
             stripped = line.strip()
-            if not stripped: # only whitespaces lines
+            if not stripped:
                 continue
             info = line.strip().split()
             if len(info) < 3:
-                print(f"[WARNING] wrong line on file {p.name}: '{stripped}'")
+                print(Fore.YELLOW + f"Wrong line on file {p.name}: '{stripped}'")
                 continue
             # print(len(info))
             flow_str = info[2].lower()
@@ -399,10 +362,8 @@ def write_taz_relations_24h(
         begin = interval_idx * 3600 / partitions
         end = (interval_idx + 1) * 3600 / partitions
         interval_el = ET.SubElement(root, "interval", begin=str(begin), end=str(end))
-
         df_now = hour_flows[hour_now]
         df_next = hour_flows.get(hour_now + 1, df_now)
-
         merged = df_now.merge(
             df_next[["From", "To", "Flow"]],
             on=["From", "To"],
@@ -412,7 +373,6 @@ def write_taz_relations_24h(
         merged["Flow_next"] = merged["Flow_next"].fillna(merged["Flow"])
 
         alpha = (quarter_idx + 0.5) / 4.0
-
         for _, row in merged.iterrows():
             vehicles = (row["Flow"] * (1 - alpha) + row["Flow_next"] * alpha) / 4.0
             if vehicles <= 0:

@@ -1,9 +1,4 @@
 """
-@file       coordinates.py
-@author     Irene Marta
-@date       2026
-
-
 This program is aimed at calculating the bounding box to give JOSM as an input.
 The script analyses three different cases:
 1. The input is a name (ex. Piazza Baldissera)
@@ -24,7 +19,6 @@ from geopy.point import Point
 
 # HACK: JOSM interface is supposed to be opened for the output to be delivered
 
-
 def josm_data(name=None, coordinates=None, intersection=None, radius=150):
     lat, lon = None, None
     geolocator = Nominatim(user_agent='sumo_map_extractor')
@@ -35,7 +29,7 @@ def josm_data(name=None, coordinates=None, intersection=None, radius=150):
         if location:
             lat, lon = location.latitude, location.longitude
     
-    elif coordinates: # migliorabile inserendo conversione di coordinate in gradi
+    elif coordinates: #TODO: migliorabile inserendo conversione di coordinate in gradi
         print(f'Search by coordinates: {coordinates}')
         lat, lon = coordinates[0], coordinates[1]
 
@@ -43,8 +37,7 @@ def josm_data(name=None, coordinates=None, intersection=None, radius=150):
         road1, road2, city = intersection
         print(f'Search by intersection: {road1} and {road2} in {city}')
 
-        # Query for Overpass API
-        query = f"""
+        query_overpass = f"""
         [out:json][timeout:25];
         area["name"="{city}"]->.c;
         (
@@ -58,7 +51,7 @@ def josm_data(name=None, coordinates=None, intersection=None, radius=150):
 
         try:
             overpass_url = "http://overpass-api.de/api/interpreter"
-            response = requests.get(overpass_url, params={'data': query})
+            response = requests.get(overpass_url, params={'data': query_overpass})
             data = response.json()
             if data['elements']:
                 lat, lon = data['elements'][0]['lat'], data['elements'][0]['lon']
@@ -69,20 +62,17 @@ def josm_data(name=None, coordinates=None, intersection=None, radius=150):
             print(f"Overpass query error: {e}")
             return
 
-    # Compute bbox (stands for each and every case):
     if lat and lon: 
         center = Point(lat, lon)
-        # Calculate cardinal points at radius-distance from the center - max distance from the center in the bbox 
         north = distance(meters=radius).destination(center, bearing=0).latitude
         south = distance(meters=radius).destination(center, bearing=180).latitude
         east  = distance(meters=radius).destination(center, bearing=90).longitude
         west  = distance(meters=radius).destination(center, bearing=270).longitude
-
         # Bounding-box coordinates
         print(f'Center of the bounding box: {center}')
         print(f"Bounding box: {south}, {west}, {north}, {east}\n")
 
-        # Send coordinates to JOSM (left = west, bottom = south, right = east, top = north)
+        # Send coordinates to JOSM --> left = west, bottom = south, right = east, top = north
         josm_url = f"http://127.0.0.1:8111/load_and_zoom?left={west}&bottom={south}&right={east}&top={north}"
 
         try:
@@ -90,7 +80,7 @@ def josm_data(name=None, coordinates=None, intersection=None, radius=150):
             print("Sent the area to JOSM.")
         except Exception as e:
             print(f"Error while opening JOSM: {e}")
-        
+
         return south, west, north, east
     
     else:
