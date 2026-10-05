@@ -3,9 +3,8 @@ Rapelli et al. - TuST
 4.1  Road Graph + TAZ:
 -> parse_edges() + read_revisioned_TAZ(): to produce a unice taz file.
 
-builds the TAZ file from the VISUM shapefile
-and derives the per-TAZ lookups (edge->TAZ, residential/service candidate
-edges) used later by the traffic assignment and O'/D' extension steps.
+builds the TAZ file from the VISUM shapefile and derives the per-TAZ lookups 
+(edge->TAZ, residential/service candidate edges) used by the traffic assignment and O'/D' extension steps.
 """
 
 import xml.etree.ElementTree as ET
@@ -17,7 +16,8 @@ from colorama import Fore, init
 
 import scripts.src.inputs.config as cfg
 from scripts.src.helpers import parse_edges
-from scripts.src.inputs.tazOD import read_revisioned_TAZ
+from scripts.src.inputs.taz_from_OD import read_TAZ
+from scripts.src.modules.entities import AssignmentContext, ResidentialCandidate
 
 init(autoreset=True)
 
@@ -30,17 +30,10 @@ RESIDENTIAL_TYPES = {
 USE_PRIORITY_FALLBACK = True
 RESIDENTIAL_PRIORITY_THRESHOLD = 4
 
-# Each candidate is stored as (edge_id, mid_x, mid_y) so the extension step
-# can rank candidates by geographic proximity to the trip's attach point,
-# instead of picking uniformly at random over the whole TAZ.
-ResidentialCandidate = Tuple[str, float, float] 
-
-def build_network_zones() -> Path:
-    """
-    Builds Taz file from VISUM shapefile (see tazOD.py)
-    """
+def _net_zones() -> Path:
+    # see tazOD.py
     edges = parse_edges(cfg.EDG_PARSE_XML)
-    taz_file = read_revisioned_TAZ(
+    taz_file = read_TAZ(
         edges,
         cfg.ZONES,
         cfg.CONNECTORS,
@@ -49,75 +42,76 @@ def build_network_zones() -> Path:
     return taz_file
 
 
-# STEP 4.3a — TAZ -> find residential/service edges (controviali)
-
-
+# STEP 4.3a — TAZ -> find residential/service edges ("controviali")
 def _taz_edge_ids(taz_el: ET.Element) -> List[str]:
-    ids = list(taz_el.get("edges", "").split())
+    e_ids = list(taz_el.get("edges", "").split())
     for t in taz_el:
         if t.tag in ("tazSource", "tazSink") and t.get("id"):
-            ids.append(t.get("id"))
-    seen = set()
-    out = []
-    for eid in ids:
-        if eid not in seen:
-            seen.add(eid)
-            out.append(eid)
-    return out
+            e_ids.append(t.get("id"))
+    seen_edges = set()
+    output = []
+    for eid in e_ids:
+        if eid not in seen_edges:
+            seen_edges.add(eid)
+            output.append(eid)
+    return output
 
 
-def build_residential_edges_by_taz(
+def _is_residential(edge) -> bool:
+    etype = edge.getType()
+    if etype in RESIDENTIAL_TYPES:
+        return True
+    if not USE_PRIORITY_FALLBACK:
+        return False
+    is_artery = False
+    for kw in ["primary", "secondary", "tertiary"]:
+        if kw in etype.lower():
+            is_artery = True
+            break
+    eprior_ok = edge.getPriority() <= RESIDENTIAL_PRIORITY_THRESHOLD and not is_artery
+    return eprior_ok
+
+
+def residential_edge_taz(
     net: "sumolib.net.Net", taz_file: Path
 ) -> Dict[str, List[ResidentialCandidate]]:
-    taz_tree = ET.parse(taz_file)
-    all_tazs = taz_tree.getroot().findall(".//taz")
+    all_tazs = ET.parse(taz_file).getroot().findall(".//taz")
 
     taz_edges: Dict[str, List[ResidentialCandidate]] = {}
-    n_total_edges = 0
-    n_matched_edges = 0
-    n_missing_in_net = 0
-    types_seen = set()
+    n_total_edges = n_matched_edges = n_missing_in_net = 0
 
     for taz in all_tazs:
-        taz_id = taz.get("id")
         edge_ids = _taz_edge_ids(taz)
         n_total_edges += len(edge_ids)
 
-        candidates: List[ResidentialCandidate] = []
+        candidates = []
         for eid in edge_ids:
             if not net.hasEdge(eid):
                 n_missing_in_net += 1
                 continue
             edge = net.getEdge(eid)
-            etype = edge.getType()
-            types_seen.add(etype)
-
-            is_residential = etype in RESIDENTIAL_TYPES
-            if not is_residential and USE_PRIORITY_FALLBACK:
-                low_capacity_street = edge.getPriority() <= RESIDENTIAL_PRIORITY_THRESHOLD
-                is_artery = any(kw in etype.lower() for kw in ["primary", "secondary", "tertiary"])
-                if low_capacity_street and not is_artery:
-                    is_residential = True
-
-            if is_residential:
+            if _is_residential(edge):
                 shape = edge.getShape()
                 mid = shape[len(shape) // 2]
                 candidates.append((eid, mid[0], mid[1]))
-                n_matched_edges += 1
-        taz_edges[taz_id] = candidates
 
-    n_taz_with_candidates = sum(1 for v in taz_edges.values() if v)
-    print(
-        Fore.LIGHTBLACK_EX +
-        f"Found {len(all_tazs)} TAZs: total edges in TAZs{n_total_edges} | not found edges: {n_missing_in_net}" 
-        f"\t residential/service edges: {n_matched_edges} "
-        f"\tTAZ having at least one candidate: {n_taz_with_candidates}"
-    )
+        taz_edges[taz.get("id")] = candidates
+        n_matched_edges += len(candidates)
+
+    n_taz_with_candidates = 0
+    for v in taz_edges.values():
+        if v:
+            n_taz_with_candidates += 1
+
+    print(Fore.LIGHTBLACK_EX + f"Found {len(all_tazs)} TAZs")
+    print(Fore.LIGHTBLUE_EX + f"\ttotal edges in TAZs{n_total_edges} | not found edges: {n_missing_in_net}" 
+        f"\t residential/service edges: {n_matched_edges} ")
+    print(Fore.LIGHTBLUE_EX + f"TAZ having at least one candidate: {n_taz_with_candidates}")
 
     return taz_edges
 
 
-def build_edge_to_taz(taz_file: Path) -> Dict[str, str]:
+def _edge_taz_map(taz_file: Path) -> Dict[str, str]:
     taz_tree = ET.parse(taz_file)
     mapping = {}
     for taz in taz_tree.getroot().findall(".//taz"):
@@ -127,28 +121,12 @@ def build_edge_to_taz(taz_file: Path) -> Dict[str, str]:
     return mapping
 
 
-@dataclass
-class AssignmentContext:
-    """
-    Bundles the network artifacts that are computed once per pipeline run
-    (main()) and then reused, unchanged, across every (scenario, period)
-    combination. It includes the loaded SUMO net, the TAZ file, the edge->TAZ lookup
-    and the per-TAZ residential/service candidate edges.
-    """
-    net: "sumolib.net.Net"
-    taz_file: Path
-    edge_taz_map: Dict[str, str]
-    residential_by_taz: Dict[str, List[ResidentialCandidate]]
-
-    @classmethod
-    def build(cls) -> "AssignmentContext":
-        taz_file = build_network_zones()
-        net = sumolib.net.readNet(str(cfg.NET_FILE))
-        edge_taz_map = build_edge_to_taz(taz_file)
-        residential_by_taz = build_residential_edges_by_taz(net, taz_file)
-        return cls(
-            net=net,
-            taz_file=taz_file,
-            edge_taz_map=edge_taz_map,
-            residential_by_taz=residential_by_taz,
-        )
+def build_context() -> AssignmentContext:
+    taz_file = _net_zones()
+    net = sumolib.net.readNet(str(cfg.NET_FILE))
+    return AssignmentContext(
+        net=net,
+        taz_file=taz_file,
+        edge_taz_map=_edge_taz_map(taz_file),
+        residential_by_taz=residential_edge_taz(net, taz_file),
+    )

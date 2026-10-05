@@ -3,10 +3,9 @@ Rapelli et al. - TuST
 4.3  Extension O'/D' using duarouter, applied ONCE after the feedback cycle
     has converged (not on every round, to keep the O'/D' random sampling
     from adding noise to the round-to-round comparison).
-    
-Selection of the residential terminal is weighted by geographic proximity
-to the attach point (K-nearest within a max radius), instead of uniform
-random choice over the whole TAZ candidate pool.
+
+Selection of the residential terminal is weighted by geographic proximity to the attach point 
+(K-nearest within a max radius), instead of uniform random choice over the whole TAZ candidate pool.
 """
 
 import math
@@ -64,7 +63,8 @@ def _nearest_candidates(
 
 
 def _run_duarouter_batch(
-    trip_specs: List["tuple[str, str, str]"], tmp_dir: Path, tag: str
+    trip_specs: List, tmp_dir: Path, tag: str,
+    net_file: Optional[Path] = None,
 ) -> Dict[str, List[str]]:
     if not trip_specs:
         return {}
@@ -82,7 +82,7 @@ def _run_duarouter_batch(
 
     try:
         run_duarouter(
-            net_file=cfg.NET_FILE,
+            net_file=net_file or cfg.NET_FILE,
             trips_input=trips_file,
             routes_output=routes_file,
             routing_alg="dijkstra",
@@ -112,6 +112,7 @@ def _resolve_terminal_edges_batch(
     scenario_tag: str,
     edge_use_count: Dict[str, int],
     net: "sumolib.net.Net",
+    net_file: Optional[Path] = None,
 ) -> Dict[str, List[str]]:
     resolved: Dict[str, List[str]] = {}
     tried: Dict[str, set] = {vid: set() for vid in pending}
@@ -152,7 +153,8 @@ def _resolve_terminal_edges_batch(
                 batch_specs.append((vid, attach_edge, candidate))
 
         batch_results = _run_duarouter_batch(
-            batch_specs, tmp_dir, tag=f"{scenario_tag}_{direction}_r{round_idx}"
+            batch_specs, tmp_dir, tag=f"{scenario_tag}_{direction}_r{round_idx}",
+            net_file=net_file,
         )
 
         for vid, candidate in reserved_this_round.items():
@@ -173,6 +175,7 @@ def extend_trips_batch(
     tmp_dir: Path,
     scenario_tag: str,
     net: "sumolib.net.Net",
+    net_file: Optional[Path] = None,
 ):
     pending_prefix = {}
     pending_suffix = {}
@@ -188,13 +191,13 @@ def extend_trips_batch(
     print(Fore.BLUE + f"\tBatch O'->O for {len(pending_prefix)} trips...")
     prefixes = _resolve_terminal_edges_batch(
         pending_prefix, residential_by_taz, "prefix", tmp_dir, scenario_tag,
-        edge_use_count, net,
+        edge_use_count, net, net_file,
     )
 
     print(Fore.BLUE + f"\tBatch D->D' for {len(pending_suffix)} trips...")
     suffixes = _resolve_terminal_edges_batch(
         pending_suffix, residential_by_taz, "suffix", tmp_dir, scenario_tag,
-        edge_use_count, net,
+        edge_use_count, net, net_file,
     )
 
     extended = {}
@@ -253,21 +256,34 @@ def _select_route_element(veh: ET.Element) -> Optional[ET.Element]:
     return None
 
 
-def extend_subset_of_trips(
+def extend_subset_trips(
     scenario: str,
     period: str,
     routes_macro: Path,
     ctx: AssignmentContext,
+    work_dir: Optional[Path] = None,
+    net_file: Optional[Path] = None,
+    closed_edges: Optional[set] = None,
 ) -> Path:
     """
     Apply O'/D' extension to a fraction of the total number of routes (FRACTION_TRIPS_TO_EXTEND).
     Only performed over last run after cycle convergence.
+
+    What-if scenarios (all optional, defaults = calibrated pipeline):
+    - work_dir: output folder (default cfg.WORKDIRS[scenario][period]);
+    - net_file: scenario network for duarouter (closed lanes forbidden), default cfg.NET_FILE;
+    - closed_edges: never chosen as residential terminal O'/D'.
     """
     net = ctx.net
     edge_taz_map = ctx.edge_taz_map
     residential_by_taz = ctx.residential_by_taz
+    if closed_edges:
+        residential_by_taz = {
+            taz: [c for c in cands if c[0] not in closed_edges]
+            for taz, cands in residential_by_taz.items()
+        }
 
-    work_dir = cfg.WORKDIRS[scenario][period]
+    work_dir = work_dir or cfg.WORKDIRS[scenario][period]
     tmp_dir = work_dir / "tmp_duarouter"
 
     tree = ET.parse(routes_macro)
@@ -335,7 +351,7 @@ def extend_subset_of_trips(
 
     scenario_tag = f"{scenario}_{period}"
     extended = extend_trips_batch(
-        selected_vehicles, residential_by_taz, tmp_dir, scenario_tag, net
+        selected_vehicles, residential_by_taz, tmp_dir, scenario_tag, net, net_file
     ) 
     new_route_counter = 0
     for vid, new_edges in extended.items():

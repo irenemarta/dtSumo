@@ -1,11 +1,11 @@
-from dataclasses import dataclass
-from pathlib import Path
-import pandas as pd
-from typing import TypedDict, Optional, Union, List, Dict
 import os
 import sumolib
 import subprocess
 import functools
+from dataclasses import dataclass
+from pathlib import Path
+import pandas as pd
+from typing import TypedDict, Optional, Union, List, Dict, Tuple
 
 
 @functools.lru_cache(maxsize=16)
@@ -130,3 +130,13 @@ class CfgAttributes:
 class AlgoInfo(TypedDict):
     title: str
     df: pd.DataFrame
+
+
+ResidentialCandidate = Tuple[str, float, float]
+
+@dataclass
+class AssignmentContext:
+    net: "sumolib.net.Net"
+    taz_file: Path
+    edge_taz_map: Dict[str, str]
+    residential_by_taz: Dict[str, List[ResidentialCandidate]]

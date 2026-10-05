@@ -1,6 +1,8 @@
 """
 TuST section 4 routing logic applied by this script:
 
+Script to produce and validate realistic traffic scenarios.
+
 4.1  Road Graph + TAZ (see taz_zones.py):
 -> parse_edges() + read_revisioned_TAZ(): to produce a unice taz file
 
@@ -25,15 +27,15 @@ from typing import List, Optional
 from colorama import init, Fore
 
 from scripts.src.operations.taz_zones import AssignmentContext
-from scripts.src.operations.feedback_cycle import (
+from scripts.src.operations.marouter_cycle import (
     DEFAULT_DAY_SCALE,
     build_final_sumocfg,
     build_sumocfg_day,
-    run_feedback_cycle,
+    run_cycle,
     run_macroscopic_assignment_day,
     run_macroscopic_assignment_day_iterative,
 )
-from scripts.src.operations.od_extension import extend_subset_of_trips
+from scripts.src.operations.od_extension import extend_subset_trips
 
 init(autoreset=True)
 
@@ -50,12 +52,12 @@ def run_pipeline_for(
     n_rounds: int = 3,
     scouting_duration: Optional[int] = None,
 ):
-    routes_macro_iterated = run_feedback_cycle(
+    routes_macro_iterated = run_cycle(
         scenario, period, ctx,
         n_rounds=n_rounds,
-        scouting_duration=scouting_duration,
+        scouting_step=scouting_duration,
     )
-    routes_final = extend_subset_of_trips(
+    routes_final = extend_subset_trips(
         scenario, period, routes_macro_iterated, ctx
     )
     build_final_sumocfg(scenario, period, ctx.taz_file, routes_final)
@@ -92,7 +94,7 @@ def main(
                 routes_day = run_macroscopic_assignment_day(
                     scenario, ctx.taz_file, scale=day_scale
                 )
-            routes_day_final = extend_subset_of_trips(
+            routes_day_final = extend_subset_trips(
                 scenario, "DAY", routes_day, ctx
             )
             build_sumocfg_day(scenario, ctx.taz_file, routes_day_final, scale=day_scale)

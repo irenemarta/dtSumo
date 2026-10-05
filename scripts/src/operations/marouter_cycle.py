@@ -6,15 +6,16 @@ feedback (marouter -> sumo -> edgeData -> marouter -> ...), n_rounds times
 
 """
 
-import subprocess, sumolib
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import scripts.src.inputs.config as cfg
 from scripts.src.operations.cmd import run_marouter
+from scripts.src.inputs.dayODs import generate_hour_matrices
 from scripts.src.operations.filtering import filter_short_flows, filter_zero_prob
-from scripts.src.operations.taz_zones import AssignmentContext, build_edge_to_taz
+from scripts.src.operations.taz_zones import AssignmentContext, _edge_taz_map
 from scripts.src.modules.entities import CfgAttributes
 
 from colorama import init, Fore
@@ -28,8 +29,6 @@ TLS_PENALTY_BY_VARIANT = {
     "with_TLS": 5.0,
 }
 
-# Default SUE params for the feedback cycle. Kept here as a single source of
-# truth instead of scattered literals in the function call.
 SUE_PARAMS = dict(
     method="SUE",
     route_choice="gawron",
@@ -53,33 +52,31 @@ INCREMENTAL_PARAMS = dict(
     weight_adaption=0.8,  # 0.8 no tls, 0.4 tls
 )
 
-# freq (secondi) del dump edgeData usato per il feedback SUE.
-EDGEDATA_FREQ = 1800
+EDGEDATA_FREQ = 1800 # frequency of data dump
 
-
-# STEP 4.2 — Traffic Assignment with marouter (AM / PM), iterative
-
+def _time_window(
+    period: str, scouting_duration: Optional[int]
+) -> tuple[int, int, int]:
+    period_begin = cfg.PERIODS[period]["start"]
+    period_end = cfg.PERIODS[period]["end"]
+    sumo_end = period_begin + scouting_duration if scouting_duration else period_end
+    return period_begin, period_end, sumo_end
 
 def _tls_variant_of(scenario: str) -> str:
     # "MA_no_TLS" -> "no_TLS" ; "MA_with_TLS" -> "with_TLS"
     return scenario.replace("MA_", "", 1)
 
-
 def _edge_weights_path(work_dir: Path, round_idx: int) -> Path:
     """
-    Single source of truth for the per-round weight file name. Used both by
-    the writer (SUMO, via edgeData) and the reader (marouter, via
-    --weight-files) so the two can never diverge into two different names
-    again (that was the whole bug: edge_output2.xml vs edgeData.xml).
+    Consistent additional file naming for SUMO edgeData, used both by the writer (SUMO, via edgeData) 
+    and the reader (marouter, via --weight-files).
     """
     return work_dir / f"edge_weights_r{round_idx}.xml"
-
 
 def _write_edgedata_additional(
     path: Path, output_file: Path, freq: int = EDGEDATA_FREQ
 ) -> Path:
     """
-    Writes an additional file for SUMO to produce an edgeData dump in output_file path.
     To be added to SUMO configuration using -a flag.
     """
     content = (
@@ -90,109 +87,17 @@ def _write_edgedata_additional(
     path.write_text(content)
     return path
 
-
-def load_traveltimes(
-    path: Path, aggregation: str = "weighted_mean"
-) -> Dict[str, float]:
-    """
-    Aggregates multi-interval edgeData dumps by edge.
-    """
-    tree = ET.parse(path)
-    samples: Dict[str, List[Tuple[float, float]]] = {}
-
-    for interval in tree.getroot().findall("interval"):
-        for edge in interval.findall("edge"):
-            sampled = float(edge.get("sampledSeconds", 0))
-            if sampled <= 0:
-                continue
-            tt = edge.get("traveltime")
-            if tt is None:
-                continue
-            eid = edge.get("id")
-            samples.setdefault(eid, []).append((float(tt), sampled))
-
-    result: Dict[str, float] = {}
-    for eid, vals in samples.items():
-        if aggregation == "max":
-            result[eid] = max(v[0] for v in vals)
-        else:  # weighted_mean
-            total_w = sum(v[1] for v in vals)
-            result[eid] = sum(v[0] * v[1] for v in vals) / total_w
-    return result
-
-
-def compute_closure_penalty(net: "sumolib.net.Net", edge_id: str, severity: float) -> float:
-    edge = net.getEdge(edge_id)
-    base_traveltime = edge.getLength() / edge.getSpeed()
-    return base_traveltime / max(severity, 1e-3)
-
-
-def build_closure_weight_file(
-    net: "sumolib.net.Net",
-    edge_id: str,
-    severity: float,
-    out_path: Path,
-    begin: int = 0,
-    end: int = 86400,
-) -> Path:
-    penalty_traveltime = compute_closure_penalty(net, edge_id, severity)
-
-    content = (
-        "<meandata>\n"
-        f'  <interval begin="{begin}" end="{end}">\n'
-        f'    <edge id="{edge_id}" traveltime="{penalty_traveltime:.2f}"/>\n'
-        "  </interval>\n"
-        "</meandata>\n"
-    )
-    out_path.write_text(content)
-
-    return out_path
-
-
-def apply_closure_penalty(
-    weight_file: Path,
-    edge_id: str,
-    penalty_traveltime: float,
-    sampled_seconds: float = 1.0,
-) -> None:
-    """
-    Riscrive (o inserisce) il traveltime dell'edge chiuso nel weight file
-    generato dal round appena concluso, così la penalità sopravvive ad ogni
-    round di feedback invece di essere sovrascritta dal tempo realmente
-    simulato (che non riflette la chiusura, essendo questa solo un costo di
-    routing, non una vera restrizione fisica dell'edge).
-    """
-    tree = ET.parse(weight_file)
-    root = tree.getroot()
-
-    for interval in root.findall("interval"):
-        edge_el = interval.find(f"./edge[@id='{edge_id}']")
-        if edge_el is None:
-            edge_el = ET.SubElement(interval, "edge")
-            edge_el.set("id", edge_id)
-        edge_el.set("traveltime", f"{penalty_traveltime:.2f}")
-        edge_el.set("sampledSeconds", f"{sampled_seconds:.2f}")
-
-    tree.write(weight_file)
-
-
-def run_feedback_cycle(
+# STEP 4.2 — Traffic Assignment with marouter (AM / PM), iterative
+def run_cycle(
     scenario: str,
     period: str,
     ctx: AssignmentContext,
     n_rounds: int = 3,
-    scouting_duration: Optional[int] = None,
+    scouting_step: Optional[int] = None,
 ) -> Path:
     """
-    Runs n_rounds of: marouter (using previous round's measured
-    travel times as weights) -> sumo -> edgeData dump -> next round.
-
-    Round 0 has no external weights (pure marouter cost function).
-    Returns the path to the cleaned (short-flows + zero-prob filtered)
-    route file of the LAST round, WITHOUT the O'/D' extension — that is
-    applied once, separately, by the caller after the cycle converges.
-
-    NB: scouting_duration restricts simulation end to begin + scouting_duration.
+    Runs n_rounds of marouter with computed traveltimes -> sumo -> edgeData dump -> next round. 
+    NB: Round 0: no external weights (pure marouter cost function); scouting_step restricts simulation end to begin + scouting_step for faster debug.
     """
     taz_file = ctx.taz_file
     edge_taz_map = ctx.edge_taz_map
@@ -203,21 +108,14 @@ def run_feedback_cycle(
 
     tls_variant = _tls_variant_of(scenario)
     tls_penalty = TLS_PENALTY_BY_VARIANT[tls_variant]
-
-    period_begin = cfg.PERIODS[period]["start"]
-    period_end = cfg.PERIODS[period]["end"]
-
-    if scouting_duration:
-        sumo_end = period_begin + scouting_duration
-    else:
-        sumo_end = period_end
+    period_begin, period_end, sumo_end = _time_window(period, scouting_step)
 
     prev_weight_file: Optional[Path] = None  # no weigths for the first round
     routes_final: Optional[Path] = None
 
     for round_idx in range(n_rounds):
         # alpha_n = 1 / (round_idx +1)
-        print(f"\n[{scenario}/{period}] ROUND {round_idx} (end={sumo_end}) =====")
+        print(f"\n{scenario}/{period} round {round_idx} (end={sumo_end})")
 
         trips_output = work_dir / f"od_trips_r{round_idx}.odtrips.xml"
         netload_output = work_dir / f"netload_r{round_idx}.xml"
@@ -255,8 +153,6 @@ def run_feedback_cycle(
             min_edges=2,
         )
         routes_final = filter_zero_prob(routes_clean)
-
-        # Il file di pesi che QUESTO round scrivera' per il PROSSIMO round.
         next_weight_file = _edge_weights_path(work_dir, round_idx + 1)
         edgedata_additional = work_dir / f"edgedata_config_r{round_idx}.add.xml"
         _write_edgedata_additional(edgedata_additional, next_weight_file)
@@ -281,7 +177,6 @@ def run_feedback_cycle(
         )
 
         sumocfg_path = cfg.CFG_DIR / cfg_name
-
         cmd = ["sumo", "-c", str(sumocfg_path), "--end", str(sumo_end)]
 
         print(f"\tSUMO simulating round n°{round_idx}...")
@@ -306,7 +201,7 @@ def run_feedback_cycle(
 
     print(
         Fore.GREEN
-        + f"\n[{scenario}/{period}] Cycle successfully completed: {n_rounds} rounds."
+        + f"\nCycle successfully completed for {scenario}/{period}: {n_rounds} rounds."
     )
     return routes_final
 
@@ -345,103 +240,31 @@ def build_final_sumocfg(
     print(f"\t.sumocfg [{scenario}/{period}]  perfomed with route file: {routes_final}")
 
 
-# STEP 4.2-DAY — Traffic Assignment for the entire day (24 matrici orarie)
-
-
-def run_macroscopic_assignment_day(
-    scenario: str, taz_file: Path, scale: float = DEFAULT_DAY_SCALE
-) -> Path:
-    """
-    Executes marouter for the entire day, only once (begin=0, end=86400),
-    using the folder of hour matrices as input (h00.mtx..h23.mtx).
-    Kept as incremental (non-iterative), for computational scalability over entire day.
-    """
-    from scripts.src.inputs.dayODs import generate_hour_matrices
-
-    generate_hour_matrices(
-        od_morning=cfg.OD_MATRICES["AM"],
-        od_evening=cfg.OD_MATRICES["PM"],
-        output_dir_data=cfg.OD_MATRICES["DAY"] / f"scaled_{scale}",
-        input_data=cfg.SENS_DATA_FOLDER / "flows.csv",
-        demand_scale=scale,
-    )
-
-    work_dir = cfg.WORKDIRS[scenario]["DAY"]
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-    data_dir = cfg.OD_MATRICES["DAY"] / f"scaled_{scale}"
-    day_matrices = sorted(data_dir.glob("h*.mtx"))
-    if not day_matrices:
-        raise RuntimeError(f"No file h*.mtx found in {data_dir}")
-
-    tls_variant = _tls_variant_of(scenario)
-    tls_penalty = TLS_PENALTY_BY_VARIANT[tls_variant]
-    detectors_file = cfg.DETECTORS[scenario]["DAY"]
-    trips_output = work_dir / "od_trips_file.odtrips.xml"
-
-    print(
-        Fore.CYAN
-        + f"[4.2-DAY] MAROUTER — scenario={scenario} ({len(day_matrices)} matrices, scale={scale})..."
-    )
-
-    routes_macro = run_marouter(
-        net_file=cfg.NET_FILE,
-        od_matrices=day_matrices,
-        taz_file=taz_file,
-        out_dir=work_dir,
-        trips_output=trips_output,
-        additional_files=[detectors_file, cfg.VTYPE],
-        netload_output=work_dir / "netload_ouput.xml",
-        method="incremental",
-        route_choice="logit",
-        logit_theta=0.3,
-        logit_beta=0.2,
-        paths=5,
-        path_penalty=15.0,
-        weights_priority=0.0,
-        max_alternatives=10,
-        max_iterations=100,
-        tolerance=0.01,
-        weights_tls=tls_penalty,
-        begin=0,
-        end=24 * 3600,
-        extra_args=[
-            "--weight-adaption",
-            str(INCREMENTAL_PARAMS["weight_adaption"]),
-            "--seed",
-            cfg.SEED,
-        ],
-    )
-    print(f"\t\tDay macroscopic assignment run in {routes_macro}")
-
-    edge_taz_map = build_edge_to_taz(taz_file)
-    routes_clean = filter_short_flows(
-        routes_macro,
-        output_new=work_dir / "marouter_output_clean.rou.xml",
-        edge_taz_map=edge_taz_map,
-        min_edges=2,
-    )
-    routes_filtered = filter_zero_prob(routes_clean)
-
-    return routes_filtered
+# STEP 4.2-DAY — config of the final day simulation
 
 
 def build_sumocfg_day(
-    scenario: str, taz_file: Path, routes_final: Path, scale: float = DEFAULT_DAY_SCALE
-) -> None:
-    work_dir = cfg.WORKDIRS[scenario]["DAY"]
-    detectors_file = cfg.DETECTORS[scenario]["DAY"]
+    scenario: str, taz_file: Path, routes_final: Path, scale: float = DEFAULT_DAY_SCALE,
+    work_dir: Optional[Path] = None, # what-if: scenario folders (defaults = calibrated run)
+    output_sumo: Optional[Path] = None,
+    detectors_file: Optional[Path] = None,
+    run_tag: str = "",
+    net_file: Optional[Path] = None,
+) -> Path:
+    work_dir = work_dir or cfg.WORKDIRS[scenario]["DAY"]
+    detectors_file = detectors_file or cfg.DETECTORS[scenario]["DAY"]
     final_edge_output = work_dir / "edge_output_final.xml"
 
     edgedata_additional = work_dir / "edgedata_config_final.add.xml"
     _write_edgedata_additional(edgedata_additional, final_edge_output)
 
+    config_name = f"francia_peschiera_MAROUTER_{scenario[3:]}{run_tag}_DAY_scaled{scale}.sumocfg"
     CfgAttributes(
-        net=cfg.NET_FILE,
+        net=net_file or cfg.NET_FILE,
         routes=routes_final,
         output_cfg=cfg.CFG_DIR,
-        output_sumo=cfg.SIM_OUT[scenario]["DAY"],
-        config_name=f"francia_peschiera_MAROUTER_{scenario[3:]}_DAY_scaled{scale}.sumocfg",
+        output_sumo=output_sumo or cfg.SIM_OUT[scenario]["DAY"],
+        config_name=config_name,
         teleport="300",
         meso=True,
         setting=cfg.VIEW,
@@ -454,31 +277,24 @@ def build_sumocfg_day(
         edgedata=edgedata_additional,
         vtype=cfg.VTYPE,
     )
-    print(f"\t\t.sumocfg [{scenario}/DAY] output in: {routes_final}")
+    print(f"\t\t.sumocfg {scenario}/DAY output in: {routes_final}")
+    return cfg.CFG_DIR / config_name
 
 
-# STEP 4.2-DAY (iterativa) — stesso ciclo di feedback di AM/PM, ma sulle 24
-
-
+# STEP 4.2-DAY (iterative) over 24 hours
 def run_macroscopic_assignment_day_iterative(
     scenario: str,
     taz_file: Path,
     n_rounds: int = 3,
     scale: float = DEFAULT_DAY_SCALE,
-    closure_id: Optional[str] = None, # for what-if scenarios
-    initial_weight_file: Optional[Path] = None,
-    detectors_file: Optional[Path] = None, # parallelisation (override of cfg.DETECTORS[scenario]["DAY"])
-    # to overwrite computed travel times with closure travel times at each round
-    closure_edge_id: Optional[str] = None,
-    closure_penalty_traveltime: Optional[float] = None,
-    regenerate_matrices: bool = True,
+    close_id: Optional[str] = None, # for what-if scenarios
+    initial_wfile: Optional[Path] = None,
+    det_file: Optional[Path] = None, # parallelisation (override of cfg.DETECTORS[scenario]["DAY"])
+    regenerate_mtx: bool = True,
+    net_file: Optional[Path] = cfg.NET_FILE, # what-if: scenario network (default cfg.NET_FILE)
 ) -> Path:
-    """
-    Same demand, different routing.
-    """
-    from scripts.src.inputs.dayODs import generate_hour_matrices
 
-    if regenerate_matrices:
+    if regenerate_mtx:
         generate_hour_matrices(
             od_morning=cfg.OD_MATRICES["AM"],
             od_evening=cfg.OD_MATRICES["PM"],
@@ -489,34 +305,39 @@ def run_macroscopic_assignment_day_iterative(
     data_dir = cfg.OD_MATRICES["DAY"] / f"scaled_{scale}"
     day_matrices = sorted(data_dir.glob("h*.mtx"))
     if not day_matrices:
-        raise RuntimeError(f"No file h*.mtx found in {data_dir}")
+        raise RuntimeError(Fore.RED + f"No file h*.mtx found in {data_dir}")
 
     work_dir = cfg.WORKDIRS[scenario]["DAY"] / "iterative"
-    if closure_id is not None:
-        work_dir = work_dir / f"closure_{closure_id}_seed{cfg.SEED}"
+    output_sumo = cfg.SIM_OUT[scenario]["DAY"]
+    run_tag = ""
+    if close_id is not None:
+        # one folder per what-if scenario: parallel runs must not overwrite each other
+        work_dir = work_dir / f"closure_{close_id}_seed{cfg.SEED}"
+        output_sumo = output_sumo / f"closure_{close_id}"
+        run_tag = f"_{close_id}"
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    edge_taz_map = build_edge_to_taz(taz_file)
+    edge_taz_map = _edge_taz_map(taz_file)
     tls_variant = _tls_variant_of(scenario)
     tls_penalty = TLS_PENALTY_BY_VARIANT[tls_variant]
-    detectors_file = detectors_file or cfg.DETECTORS[scenario]["DAY"] # override or default
+    det_file = det_file or cfg.DETECTORS[scenario]["DAY"] # override or default
 
-    prev_weight_file: Optional[Path] = initial_weight_file
+    prev_weight_file: Optional[Path] = initial_wfile
     routes_final: Optional[Path] = None
 
     for round_idx in range(n_rounds):
-        print(f"\n===== [{scenario}/DAY] ROUND {round_idx} (24h, scale={scale}) =====")
+        print(f"\n {scenario}/DAY: ROUND {round_idx} (24h at {scale*100}% load)")
 
         trips_output = work_dir / f"od_trips_r{round_idx}.odtrips.xml"
         netload_output = work_dir / f"netload_r{round_idx}.xml"
 
         routes_macro = run_marouter(
-            net_file=cfg.NET_FILE,
+            net_file=net_file,
             od_matrices=day_matrices,
             taz_file=taz_file,
             out_dir=work_dir,
             trips_output=trips_output,
-            additional_files=[detectors_file, cfg.VTYPE],
+            additional_files=[det_file, cfg.VTYPE],
             netload_output=netload_output,
             data_dir=cfg.OD_MATRICES["DAY"] / f"scaled_{scale}",
             method="incremental",
@@ -542,7 +363,7 @@ def run_macroscopic_assignment_day_iterative(
             ],
         )
         print(
-            f"\tDay macroscopic assignment (round {round_idx}) saved here: {routes_macro}"
+            f"\tDay macroscopic assignment round {round_idx} saved here: {routes_macro}"
         )
 
         routes_clean = filter_short_flows(
@@ -552,18 +373,16 @@ def run_macroscopic_assignment_day_iterative(
             min_edges=2,
         )
         routes_final = filter_zero_prob(routes_clean)
+        next_wfile = _edge_weights_path(work_dir, round_idx+1)
+        edgedata_add = work_dir / f"edgedata_config_r{round_idx}.add.xml"
+        _write_edgedata_additional(edgedata_add, next_wfile)
 
-        # Current weigth file, used in the next step
-        next_weight_file = _edge_weights_path(work_dir, round_idx + 1)
-        edgedata_additional = work_dir / f"edgedata_config_r{round_idx}.add.xml"
-        _write_edgedata_additional(edgedata_additional, next_weight_file)
-
-        cfg_name = f"francia_peschiera_DAYITER_{scenario[3:]}_r{round_idx}_seed{cfg.SEED}.sumocfg"
+        cfg_name = f"francia_peschiera_DAYITER_{scenario[3:]}{run_tag}_r{round_idx}_seed{cfg.SEED}.sumocfg"
         CfgAttributes(
-            net=cfg.NET_FILE,
+            net=net_file,
             routes=routes_final,
             output_cfg=cfg.CFG_DIR,
-            output_sumo=cfg.SIM_OUT[scenario]["DAY"],
+            output_sumo=output_sumo,
             config_name=cfg_name,
             teleport="300",
             meso=True,
@@ -573,37 +392,31 @@ def run_macroscopic_assignment_day_iterative(
             taz=taz_file,
             begin=0,
             end=24 * 3600,
-            detectors=detectors_file,
-            edgedata=edgedata_additional,
+            detectors=det_file,
+            edgedata=edgedata_add,
             vtype=cfg.VTYPE,
             seed=cfg.SEED,
         )
 
         sumocfg_path = cfg.CFG_DIR / cfg_name
         cmd = ["sumo", "-c", str(sumocfg_path)]
-        print(f"\tLancio SUMO (meso) round {round_idx}...")
+        print(Fore.CYAN + f"\tSUMO round {round_idx}...")
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
-            print(f"[ERROR for SUMO round {round_idx}]")
+            print(Fore.RED + f"ERROR for SUMO round {round_idx}")
             print("STDOUT:", e.stdout)
             print("STDERR:", e.stderr)
             raise
 
-        if not next_weight_file.exists():
+        if not next_wfile.exists():
             raise RuntimeError(
-                f"edgeData non generato per il round {round_idx}: {next_weight_file}"
+                f"edgeData not generated for round {round_idx}: {next_wfile}"
             )
-
-        if closure_edge_id is not None:                      # <-- nuovo blocco
-            apply_closure_penalty(
-                next_weight_file, closure_edge_id, closure_penalty_traveltime
-            )
-
+        prev_weight_file = next_wfile
         print(
-            f"\tRound {round_idx} completo. Pesi per il prossimo round: {next_weight_file}"
+            f"\tRound {round_idx} completed. Weight file for next round: {prev_weight_file}"
         )
-        prev_weight_file = next_weight_file
 
-    print(f"\n[{scenario}/DAY] Ciclo iterativo completato: {n_rounds} round eseguiti.")
+    print(Fore.GREEN + f"\n{scenario}/DAY completed ({n_rounds} rounds).")
     return routes_final
