@@ -1,23 +1,19 @@
 """
 4.2 Macroscopic Traffic Assignment (Rapelli et al. - TuST)
--> run_sue_feedback_cycle(): iterative SUE assignment with real-travel-time
-feedback (marouter -> sumo -> edgeData -> marouter -> ...), n_rounds times
--> filter_short_flows() removes trips that are not long enough
-
+- run_cycle(): iterative SUE assignment with real-traveltime
+- feedback (marouter -> sumo -> edgeData -> marouter -> ...), n_rounds times
 """
 
 import subprocess
-import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import scripts.src.inputs.config as cfg
 from scripts.src.operations.cmd import run_marouter
 from scripts.src.inputs.dayODs import generate_hour_matrices
 from scripts.src.operations.filtering import filter_short_flows, filter_zero_prob
-from scripts.src.operations.taz_zones import AssignmentContext, _edge_taz_map
-from scripts.src.modules.entities import CfgAttributes
-
+from scripts.src.operations.taz_zones import _edge_taz_map
+from scripts.src.modules.entities import CfgAttributes, AssignmentContext
 from colorama import init, Fore
 
 init(autoreset=True)
@@ -45,11 +41,11 @@ SUE_PARAMS = dict(
 INCREMENTAL_PARAMS = dict(
     method="incremental",
     route_choice="gawron",
-    paths=10,
+    paths=5,
     path_penalty=15.0,
     weights_priority=0.0,
     max_iterations=100,
-    weight_adaption=0.8,  # 0.8 no tls, 0.4 tls
+    weight_adaption=0.4,  # 0.8 no tls, 0.4 tls
 )
 
 EDGEDATA_FREQ = 1800 # frequency of data dump
@@ -87,7 +83,7 @@ def _write_edgedata_additional(
     path.write_text(content)
     return path
 
-# STEP 4.2 — Traffic Assignment with marouter (AM / PM), iterative
+# STEP 4.2 — Traffic Assignment with marouter for peaks (AM / PM)
 def run_cycle(
     scenario: str,
     period: str,
@@ -114,7 +110,6 @@ def run_cycle(
     routes_final: Optional[Path] = None
 
     for round_idx in range(n_rounds):
-        # alpha_n = 1 / (round_idx +1)
         print(f"\n{scenario}/{period} round {round_idx} (end={sumo_end})")
 
         trips_output = work_dir / f"od_trips_r{round_idx}.odtrips.xml"
@@ -241,8 +236,6 @@ def build_final_sumocfg(
 
 
 # STEP 4.2-DAY — config of the final day simulation
-
-
 def build_sumocfg_day(
     scenario: str, taz_file: Path, routes_final: Path, scale: float = DEFAULT_DAY_SCALE,
     work_dir: Optional[Path] = None, # what-if: scenario folders (defaults = calibrated run)
@@ -291,8 +284,9 @@ def run_macroscopic_assignment_day_iterative(
     initial_wfile: Optional[Path] = None,
     det_file: Optional[Path] = None, # parallelisation (override of cfg.DETECTORS[scenario]["DAY"])
     regenerate_mtx: bool = True,
-    net_file: Optional[Path] = cfg.NET_FILE, # what-if: scenario network (default cfg.NET_FILE)
+    net_file: Optional[Path] = None, # what-if: scenario network (default cfg.NET_FILE)
 ) -> Path:
+    net_file = net_file or cfg.NET_FILE
 
     if regenerate_mtx:
         generate_hour_matrices(
