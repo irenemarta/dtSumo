@@ -345,8 +345,7 @@ def extend_subset_trips(
 
     print(
         Fore.BLUE +
-        f"[4.3] O'/D' Extension [{scenario}/{period}]: {n_to_extend}/{len(vehicles)} trips. "
-        f"\nfranction = {FRACTION_TRIPS_TO_EXTEND:.0%} | "
+        f"O'/D' Extension [{scenario}/{period}]: {n_to_extend}/{len(vehicles)} trips | franction = {FRACTION_TRIPS_TO_EXTEND:.0%}"
     )
 
     scenario_tag = f"{scenario}_{period}"

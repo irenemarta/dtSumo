@@ -1,6 +1,7 @@
 .env
 .venv
 .vscode
+*.log
 data
 scripts/output
 __pycache__

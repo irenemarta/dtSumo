@@ -4,35 +4,22 @@ TuST section 4 routing logic applied by this script:
 Script to produce and validate realistic traffic scenarios.
 
 4.1  Road Graph + TAZ (see taz_zones.py):
--> parse_edges() + read_revisioned_TAZ(): to produce a unice taz file
+4.2  Traffic Assignment macroscopico (see marouter_cycle.py)
+4.3  Extension O'/D' using duarouter (see od_extension.py)
 
-4.2  Traffic Assignment macroscopico (see feedback_cycle.py)
--> run_sue_feedback_cycle(): iterative SUE assignment with real-travel-time
-feedback (marouter -> sumo -> edgeData -> marouter -> ...), n_rounds times
--> filter_short_flows() removes trips that are not long enough
-
-4.3  Extension O'/D' using duarouter (see od_extension.py), applied ONCE
-    after the feedback cycle has converged (not on every round, to keep
-    the O'/D' random sampling from adding noise to the round-to-round
-    comparison).
-
-This module only wires the three steps together and exposes the CLI
-entry point; the per-step logic lives in taz_zones.py / feedback_cycle.py
-/ od_extension.py.
+This module orchestrates the three steps together and exposes the CLI entry point.
 """
 
 import random
 import click
 from typing import List, Optional
 from colorama import init, Fore
-
-from scripts.src.operations.taz_zones import AssignmentContext
+from scripts.src.operations.taz_zones import AssignmentContext, build_context
 from scripts.src.operations.marouter_cycle import (
     DEFAULT_DAY_SCALE,
     build_final_sumocfg,
     build_sumocfg_day,
     run_cycle,
-    run_macroscopic_assignment_day,
     run_macroscopic_assignment_day_iterative,
 )
 from scripts.src.operations.od_extension import extend_subset_trips
@@ -76,7 +63,7 @@ def main(
     random.seed(42) 
     scenarios = scenarios or SCENARIOS_MA
     periods = periods or PERIODS_TO_RUN
-    ctx = AssignmentContext.build()
+    ctx = build_context()
 
     for scenario in scenarios:
         if run_peaks:
@@ -86,14 +73,9 @@ def main(
                     n_rounds=n_rounds, scouting_duration=scouting_duration,
                 ) 
         if run_day:
-            if day_rounds > 1:
-                routes_day = run_macroscopic_assignment_day_iterative(
-                    scenario, ctx.taz_file, n_rounds=day_rounds, scale=day_scale
-                )
-            else:
-                routes_day = run_macroscopic_assignment_day(
-                    scenario, ctx.taz_file, scale=day_scale
-                )
+            routes_day = run_macroscopic_assignment_day_iterative(
+                scenario, ctx.taz_file, n_rounds=day_rounds, scale=day_scale
+            )
             routes_day_final = extend_subset_trips(
                 scenario, "DAY", routes_day, ctx
             )
@@ -116,10 +98,8 @@ def main(
 @click.option("--period", "periods", multiple=True, type=click.Choice(PERIODS_TO_RUN), help="Peak/s period/s to run (not allowed for DAY scenario).")
 
 def cli(day_only, peaks_only, scale, day_rounds, rounds, scout_duration, scenarios, periods):
-    """TuST pipeline (sections 4.2-4.3)."""
     if day_only and peaks_only:
         raise click.UsageError(Fore.RED + "ERROR:--day-only and --peaks-only are mutually exclusive!.")
-
     main(
         run_peaks=not day_only,
         run_day=not peaks_only,

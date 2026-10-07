@@ -47,9 +47,9 @@ class XMLBuilder:
         )
         
     @staticmethod
-    def calculate_edge_length(shape):
+    def calculate_edge_length(shape: list[tuple]):
         length = 0.0
-        # shape = {(x0, y0), (x1, y1), ... , (xn, yn)} --> lista di tuple
+        # shape = {(x0, y0), (x1, y1), ... , (xn, yn)}
         # iterative eucledian distance computation to get the total lenght
         for i in range(1, len(shape)):
             x1, y1 = shape[i - 1]
@@ -121,10 +121,6 @@ class TypeBuilder(XMLBuilder):
         for edge in net.getEdges():
             id_type = getattr(edge, "_type", "").strip().lower()
 
-            """
-            The getattr() function returns the value of the specified attribute from the specified object.
-            SYNTAX: getattr(object, attribute, default)
-            """
             if not id_type:
                 continue
             if id_type not in type_ids:
@@ -193,13 +189,9 @@ class EdgeBuilder(XMLBuilder):
                         "shape": self._shape_to_str(edge.getShape())
                     }
                 )
-            # Creation of edge subelement
             edge_element = ET.SubElement(root, "edge", edge_attribs)
-            
             force_allow = self.FORCE_ALLOW_BY_TYPE.get(edge_type)
             
-            
-            # Definition of lane element
             for lane in edge.getLanes():
                 # Definition of edge-element subelement
                 ET.SubElement(
@@ -224,7 +216,6 @@ class TLLBuilder(XMLBuilder):
         root = ET.Element("tlLogics", self._root("tllogic_file.xsd"))
         
         for tls in net.getTrafficLights():
-            # Check tls programs
             programs = tls.getPrograms()
             if not programs:  # blanck list -> initialize at least one program
                 ET.SubElement(root, "tlLogic", {"id": tls.getID()})
@@ -242,8 +233,6 @@ class TLLBuilder(XMLBuilder):
                     },
                 )
 
-                # Check tls phases
-                # Every program has its associated tls phases
                 for phase in program.getPhases():
                     ET.SubElement(
                         tlElement,
@@ -284,12 +273,10 @@ class RoundaboutBuilder(XMLBuilder):
             for edge in ra.getEdges():
                 list_edg.append(edge)
 
-            # List of nodes
             list_nod = []
             for node in ra.getNodes():
                 list_nod.append(node)
 
-            # Sublement creation
             ET.SubElement(
                 root,
                 "roundabout",
