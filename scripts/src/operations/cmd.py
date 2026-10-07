@@ -1,26 +1,16 @@
-"""
-@file       cmdOperations.py
-@author     Irene Marta
-@date       2026
-"""
-
-import os
-import subprocess
+import os, subprocess, shutil
 from pathlib import Path
-import shutil
-from typing import List, Dict
+from colorama import init, Fore
+from typing import List
 from scripts.src.helpers import parse_edges, _process_multiple_ods
 from scripts.src.inputs import config as cfg
-from scripts.src.operations.filtering import filter_zero_flows, _spread_depart_trips
+from scripts.src.operations.filtering import filter_zero_flows, scale_taz_trips_by_hour
 
-"""shutil.rmtree(): Deletes a directory along with its contents. 
-It takes the directory path as an argument and removes all the files and subdirectories within it."""
-
+init(autoreset=True)
 
 ### SUMO operations from cmd - helpers
 
 ROUTERS = ["dijkstra", "astar", "CH"]
-
 
 def _ensure_sumo_home():
     if "SUMO_HOME" not in os.environ:
@@ -34,13 +24,15 @@ def _sumo_bin(tool: str) -> str:
 def _sumo_tool(*parts: str) -> str:
     return os.path.join(os.environ["SUMO_HOME"], "tools", *parts)
 
+def _join(files) -> str:
+    if isinstance(files, (list, tuple)):
+        return ",".join(str(f) for f in files)
+    return str(files)
+
 
 def run_cmd(cmd: list, tool_name: str = "tool"):
-    """Run a subprocess, raising clear errors on failure."""
     try:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        # if result.stdout:
-        #     print(result.stdout)
         return result
 
     except subprocess.CalledProcessError as e:
@@ -52,17 +44,11 @@ def run_cmd(cmd: list, tool_name: str = "tool"):
         )
 
 
-### DUAROUTER helper
+
+
 def run_duarouter(
     net_file, trips_input, routes_output, routing_alg="dijkstra", additional_files: str | list=None, extra_args=None
 ):
-
-    # out_path = Path(routes_output)
-    # out_dir  = out_path.parent / routing_alg
-    # out_dir.mkdir(parents=True, exist_ok=True)
-
-    # final_routes_output = out_dir / out_path.name # "output/dijkstra/od_route.rou.xml"
-
     cmd = [
         _sumo_bin("duarouter"),
         "-n",
@@ -71,7 +57,6 @@ def run_duarouter(
         str(trips_input),
         "-o",
         str(routes_output),
-        # "-o", str(final_routes_output),
         "--routing-algorithm",
         routing_alg,
     ]
@@ -79,16 +64,12 @@ def run_duarouter(
         cmd += extra_args
     
     if additional_files:
-        cmd += [str(additional_files)]
+        cmd += ["-a", _join(additional_files)]
 
     result = run_cmd(cmd, "duarouter")
     print(f"Routes saved to {routes_output}")
-    # print(f"Routes saved to {final_routes_output}")
 
     return result, routes_output
-
-
-### run simulation
 
 
 def run_simulation(config_file):
@@ -106,8 +87,6 @@ def run_simulation(config_file):
         tool_name="sumo",
     )
 
-
-### Random trips/routes
 
 VEHICLE_CONFIGS = [
     {
@@ -183,8 +162,6 @@ def random_routes(net_file: Path, out_dir: Path):
     )
 
 
-### OD to trips/routes
-
 _OD_DUAROUTER_ARGS = [
     "--ignore-errors",
     "--departlane",
@@ -206,21 +183,11 @@ _OD_DUAROUTER_ARGS = [
 
 
 def _od2trips(taz_file: Path, od_matrix: Path | List[str], trips_output: Path, extra_args=None):
-    #path_config_save = os.path.join(trips_output.parent, "od2trips_config")
-    if isinstance(od_matrix, (list, tuple)):
-        od_str = ",".join(str(f) for f in od_matrix)
-    else:
-        od_str = str(od_matrix)
     cmd = [
         _sumo_bin("od2trips"),
-        "-n",
-        str(taz_file),
-        "--od-matrix-files",
-        od_str,
-        "-o",
-        str(trips_output),
-        #"-C", # --save-configuration
-        #str(path_config_save)
+        "-n", str(taz_file),
+        "--od-matrix-files", _join(od_matrix),
+        "-o", str(trips_output),
     ]
     if extra_args:
         cmd += extra_args
@@ -230,7 +197,6 @@ def _od2trips(taz_file: Path, od_matrix: Path | List[str], trips_output: Path, e
 
 def trips_routes_from_od(net_file: Path, taz_file, od_matrix, local_priority_threshold, out_dir="."):
     _ensure_sumo_home()
-    #print("DEBUG out_dir:", type(out_dir), repr(out_dir))
     trips = os.path.join(out_dir, "od_trips_file.odtrips.xml")
     trips_via_path = os.path.join(out_dir, "od_trips_via.trips.xml")
     routes_output = os.path.join(out_dir, "od_route_file.odtrips.rou.xml")
@@ -261,7 +227,7 @@ def _find_last_complete_iteration(out_dir: str):
         return None
 
     # Last route file = last iteration working directory
-    ### last_iter = str(iterations - 1).zfill(3)  -> no se equilibrio raggiunto prima dell'ultima iterazione
+    ### last_iter = str(iterations - 1).zfill(3)
     subdirs = [
         sdir.name for sdir in out_dir.iterdir() if sdir.is_dir() and sdir.name.isdigit()
     ]
@@ -277,7 +243,7 @@ def _find_last_dua_iteration(trips_str: str, out_dir: str):
     out_dir = Path(out_dir)
 
     # Last route file = last iteration working directory
-    ### last_iter = str(iterations - 1).zfill(3)  -> no se equilibrio raggiunto prima dell'ultima iterazione
+    ### last_iter = str(iterations - 1).zfill(3)
     subdirs = [
         sdir.name for sdir in out_dir.iterdir() if sdir.is_dir() and sdir.name.isdigit()
     ]
@@ -344,22 +310,19 @@ def run_duaIterate(
     routing_alg: str = "dijkstra",
     save_every: int = None, # save output every save_every step
     # if SUE:
-    route_choice: str = None,  # DUE if none, else SUE ("gawron"/"logit")
+    route_choice: str = None,  # DUE if none, else SUE (gawron/logit)
     gawron_beta: float = 0.3,
     gawron_a: float = 0.05,
     logit_theta: float = 0.01,  # parameter to adapt the cost unit
-    logit_gamma: float = 1,  # "use the c-logit model for route choice
+    logit_gamma: float = 1,  # use the c-logit model for route choice
     logit_beta: float = 0.15,  # use the c-logit model for route choice; logit model when beta = 0
     use_meso: bool = False,
     extra_args: list = None,
     additional_files: list | tuple | Path=None,
 ) -> Path:
     """
-    Performs DUE or SUE basing on the route_choice parameter
-
-    SUE: duaiterate with stocasthic route choice (Gawron o Logit).
-
-    NB: it is important to set --convergence-steps in order to garantuee convergence
+    Performs DUE or SUE basing on the route_choice parameter.
+    NB: --convergence-steps in order to garantuee convergence!!
     """
 
     out_dir = Path(out_dir)
@@ -370,18 +333,7 @@ def run_duaIterate(
 
     _ensure_sumo_home()
     os.makedirs(out_dir, exist_ok=True)
-
-    """
-    The isinstance() function returns True 
-    if the specified object is of the specified type, otherwise False.
-    """
-    
-    trips_str = (
-        ",".join(str(t) for t in trips_file)
-        if isinstance(trips_file, (list, tuple))
-        else str(trips_file)
-    )
-
+    trips_str = _join(trips_file)
 
     def _cmd_definition(first_step: int, last_step: int) -> list:
         cmd = [
@@ -411,12 +363,7 @@ def run_duaIterate(
             ]
 
         if additional_files:
-            additionals_str = (
-                ",".join(str(a) for a in additional_files)
-                if isinstance(additional_files, (list, tuple))
-                else str(additional_files)
-            )
-            cmd += ["-+", additionals_str]
+            cmd += ["-+", _join(additional_files)]
 
         if begin is not None:
             cmd += ["-b", str(begin), "-e", str(end)]
@@ -433,7 +380,7 @@ def run_duaIterate(
     try:
         os.chdir(out_dir)
         
-        # Check if there are any pre-computed steps for the algorithm
+        # Check for pre-computed steps for the algorithm
         last_step = _find_last_complete_iteration(out_dir=out_dir)
         start_step = 0 if last_step is None else last_step
         
@@ -504,6 +451,7 @@ def run_marouter(
     end: int = None,
     additional_files=None,
     tolerance: float = 0.001,
+    demand_rules: list = None,  # what-if demand change, see filtering.scale_taz_trips_by_hour
     extra_args=None
 ) -> Path:
     
@@ -517,13 +465,6 @@ def run_marouter(
 
     _ensure_sumo_home()
     os.makedirs(out_dir, exist_ok=True)
-    if data_dir:
-        os.makedirs(Path(data_dir, "od_rounded"), exist_ok=True)
-
-    """
-    The isinstance() function returns True 
-    if the specified object is of the specified type, otherwise False.
-    """
 
     # ods_str = (
     #     ",".join(str(od) for od in od_matrices)
@@ -539,9 +480,9 @@ def run_marouter(
     if od_matrices:
         if data_dir:
             out_path_od = Path(data_dir) / "od_rounded"
+            os.makedirs(out_path_od, exist_ok=True)
         else: 
             out_path_od = Path(od_matrices[0]).parent
-        
         cleaned_matrices = _process_multiple_ods(
             od_matrices,
             out_path=out_path_od,
@@ -560,22 +501,15 @@ def run_marouter(
                         "--departlane", "best"
             ],
         )
-    #     trips_spread = _spread_depart_trips(Path(trips_output))
-    #     filter_zero_flows(trips_xml=trips_spread)
     
     # trips_arg = (
     #     ",".join(str(t) for t in trips_spread)
     #     if isinstance(trips_spread, (list, tuple))
     #     else str(trips_spread)
     # )
-
         filter_zero_flows(trips_xml=trips_output)
-    
-    trips_arg = (
-        ",".join(str(t) for t in trips_output)
-        if isinstance(trips_output, (list, tuple))
-        else str(trips_output)
-    )
+        if demand_rules:
+            scale_taz_trips_by_hour(trips_output, demand_rules)
 
     cmd = [
         _sumo_bin("marouter"),
@@ -585,7 +519,7 @@ def run_marouter(
         str(output_path),
         #"-C", # save configuration
         #str(path_config_save),
-        "-r", trips_arg,
+        "-r", _join(trips_output),
         #"-m", str(ods_str),
         #"--scale",
         #str(scale_factor),
@@ -603,7 +537,6 @@ def run_marouter(
         "--ignore-errors", "true", # continue even in case of errors
         # "--with-taz", "true",
         # "--ignore-taz", "true", --> funziona meno, testato a parità del resto
-        # TO MANAGE TLS EFFECT
         "--weights.expand", "true", # infinitelly expands last interval weight file
         "--weights.tls-penalty", str(weights_tls),  # seconds penalty for each tls
         "--weights.priority-factor", str(weights_priority), # Consider edge priorities in addition to travel times, weighted by factor
@@ -655,14 +588,10 @@ def run_marouter(
             #"--taz-param", "weight", # Parameter key(s) defining source (and sink) taz
                 ]
 
-    additional_list = [str(taz_file)]
+    additionals = [str(taz_file)]
     if additional_files:
-        if isinstance(additional_files, (list, tuple)):
-            additional_list += [str(a) for a in additional_files]
-        else:
-            additional_list.append(str(additional_files))
-
-    cmd += ["-a", ",".join(additional_list)]
+        additionals += additional_files if isinstance(additional_files, (list, tuple)) else [additional_files]
+    cmd += ["-a", _join(additionals)]
 
     if begin is not None:
         cmd += ["-b", str(begin), "-e", str(end)]
@@ -677,7 +606,6 @@ def run_marouter(
     print(f"PARAMETERS:\n{" ".join(cmd)}")
 
     try:
-        #cmd = [str(arg) for arg in cmd]
         result = subprocess.run(cmd, check=True, text=True, capture_output=True)
         print(result.stdout)
         print(f"marouter performed: {output_path}")

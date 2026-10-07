@@ -20,7 +20,7 @@ from scripts.src.operations.marouter_cycle import (
     build_final_sumocfg,
     build_sumocfg_day,
     run_cycle,
-    run_macroscopic_assignment_day_iterative,
+    run_macro_assignment_day_iterative,
 )
 from scripts.src.operations.od_extension import extend_subset_trips
 
@@ -73,7 +73,7 @@ def main(
                     n_rounds=n_rounds, scouting_duration=scouting_duration,
                 ) 
         if run_day:
-            routes_day = run_macroscopic_assignment_day_iterative(
+            routes_day = run_macro_assignment_day_iterative(
                 scenario, ctx.taz_file, n_rounds=day_rounds, scale=day_scale
             )
             routes_day_final = extend_subset_trips(

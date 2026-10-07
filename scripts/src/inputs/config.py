@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv() # reads variables from a .env file and sets them in os.environ
 
-SEED=2026
+SEED = int(os.environ.get("DTSUMO_SEED", 2026))
 
 # Main roots
 # override via DTSUMO_BASE_PATH in .env (see .env.example) for machine specific paths.

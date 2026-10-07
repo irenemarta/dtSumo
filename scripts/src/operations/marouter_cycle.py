@@ -6,7 +6,7 @@
 
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import scripts.src.inputs.config as cfg
 from scripts.src.operations.cmd import run_marouter
@@ -275,7 +275,7 @@ def build_sumocfg_day(
 
 
 # STEP 4.2-DAY (iterative) over 24 hours
-def run_macroscopic_assignment_day_iterative(
+def run_macro_assignment_day_iterative(
     scenario: str,
     taz_file: Path,
     n_rounds: int = 3,
@@ -285,6 +285,7 @@ def run_macroscopic_assignment_day_iterative(
     det_file: Optional[Path] = None, # parallelisation (override of cfg.DETECTORS[scenario]["DAY"])
     regenerate_mtx: bool = True,
     net_file: Optional[Path] = None, # what-if: scenario network (default cfg.NET_FILE)
+    demand_rules: Optional[List[dict]] = None, # what-if demand change (filtering.scale_taz_trips_by_hour), OD files untouched
 ) -> Path:
     net_file = net_file or cfg.NET_FILE
 
@@ -348,6 +349,7 @@ def run_macroscopic_assignment_day_iterative(
             begin=0,
             end=24 * 3600,
             weight_files=str(prev_weight_file) if prev_weight_file else None,
+            demand_rules=demand_rules,
             extra_args=[
                 "-l",
                 str(work_dir / f"marouter_r{round_idx}.log"),

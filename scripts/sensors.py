@@ -1,8 +1,4 @@
 """
-@file       sensors.py
-@author     Irene Marta
-@date       2026
-
 This script aims at analyzing data collected both on PASTA and BRIDGE databases, as two different comparable sources of traffic data, and at comparing them to
 simulation results (SUMO summary.xml) to evaluate the quality of the simulation and the real-scenarios representativeness of the simulated model.
 
@@ -12,28 +8,32 @@ The script is structured as follows:
 3. Data aggregation
 4. Definition of functions to plot and compare data
 5. SUMO output (summary.xml) analysis and dashboard creation.
+
+Data is organised following the DataFrameSchemaPasta/DataFrameSchemaMerge.
+Take hourly (count, speed) observations for one sensor across many days.
 """
 
 import os
 from dotenv import load_dotenv
-from typing import List, Tuple
 from pathlib import Path
-from numpy import float64
 
-import pandas as pd
+from typing import List, Tuple
 import matplotlib.pyplot as plt
 import seaborn as sns
-
 import geopandas as gpd
 import contextily as cx
+
+import pandas as pd
 import pandera.pandas as pa
-from pandera.typing import Series
 
-import scripts.src.inputs.config as cfg
 from scripts.src.operations.connections import _get_pasta_data
+from scripts.src.modules.entities import (
+    DataFrameSchemaBridge,
+    DataFrameSchemaPasta,
+    DataFrameSchemaMerge,
+)
+import scripts.src.inputs.config as cfg
 
-
-# Global variables
 sns.set_theme(style="whitegrid")
 DATE_FORMAT = "%Y-%m-%d"
 HOUR_FORMAT = "{:02d}:00"
@@ -50,8 +50,6 @@ VEHICLE_CONVERSION_FACTORS = {
 }
 
 PALETTES = {"primary": "viridis", "secondary": "coolwarm", "speeds": "colorblind"}
-
-### HELPERS
 
 
 # STANDARDIZE DATAFRAMES WITH SENSOR DATA
@@ -71,68 +69,6 @@ def format_hour_column(df: pd.DataFrame, hour_col: str = "hour") -> pd.DataFrame
     df = df.copy()
     df[hour_col] = df[hour_col].astype(str).str.zfill(2) + ":00"
     return df
-
-
-# Database integrity
-class DataFrameSchemaBridge(pa.DataFrameModel):
-    # Common columns definitions and constraints
-    sezione: Series[int] = pa.Field(gt=0)
-    name: Series[str]
-    hour: Series[object] = pa.Field(str_matches=r"^\d{2}:00$")  # HH:00 format
-    daytime: Series[str] = pa.Field(
-        str_matches=r"^\d{4}-\d{2}-\d{2}$"
-    )  # YYYY-MM-DD format
-    # Column definitions and constraints for BRDIGE
-    BRIDGE_count: Series[int] = pa.Field(ge=0)
-
-
-class DataFrameSchemaPasta(pa.DataFrameModel):
-    # Common columns definitions and constraints
-    sezione: Series[int] = pa.Field(gt=0)
-    name: Series[str]
-    hour: Series[object] = pa.Field(str_matches=r"^\d{2}:00$")  # HH:00 format
-    daytime: Series[str] = pa.Field(
-        str_matches=r"^\d{4}-\d{2}-\d{2}$"
-    )  # YYYY-MM-DD format
-    # Column defintiions and constraints for PASTA
-    Cod_sens: Series[int] = pa.Field(gt=0)
-    strada: Series[str]
-    direction: Series[str]
-    lat: Series[float64]
-    lon: Series[float64]
-    disponibile: Series[bool] = pa.Field(isin=[0, 1])
-    PASTA_count: Series[int] = pa.Field(ge=0)
-    AVG_accuracy: Series[float64] = pa.Field(ge=0)
-    AVG_speed: Series[float64] = pa.Field(ge=0)
-
-    class Config:
-        strict = True  # if True, error for extra columns not defined
-        coerce = True  # convertes automatically if wrong type
-
-
-class DataFrameSchemaMerge(pa.DataFrameModel):
-    # Common columns definitions and constraints
-    sezione: Series[int] = pa.Field(gt=0)
-    name: Series[str]
-    hour: Series[object] = pa.Field(str_matches=r"^\d{2}:00$")  # HH:00 format
-    daytime: Series[str] = pa.Field(
-        str_matches=r"^\d{4}-\d{2}-\d{2}$"
-    )  # YYYY-MM-DD format
-    # Column definitions and constraints for merged dataframe
-    BRIDGE_count: Series[int] = pa.Field(ge=0)
-    PASTA_count: Series[int] = pa.Field(ge=0)
-    Cod_sens: Series[int] = pa.Field(gt=0)
-    strada: Series[str]
-    direction: Series[str]
-    lat: Series[float64]
-    lon: Series[float64]
-    disponibile: Series[bool] = pa.Field(isin=[0, 1])
-    AVG_accuracy: Series[float64] = pa.Field(ge=0)
-    AVG_speed: Series[float64] = pa.Field(ge=0)
-
-    class Config:
-        strict = True  # if True, error for extra columns not defined
-        coerce = True  # convertes automatically if wrong type
 
 
 #### 1.BRIDGE API interface (MOBILITY 129)
@@ -201,11 +137,11 @@ def plot_sens_position(gdf: gpd.GeoDataFrame, output_dir: Path) -> None:
     gdf.plot(ax=ax, marker="o", color="blue", markersize=60)
 
     ax.set_axis_off()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+
     cx.add_basemap(ax, source=cx.providers.OpenStreetMap.Mapnik)
     # point labels
     for x, y, label in zip(
@@ -253,7 +189,6 @@ def merge_data(df_bridge: pd.DataFrame, df_pasta: pd.DataFrame) -> pd.DataFrame:
     )
     print(df_bridge.columns)
     df_bridge = standardize_datetime(df_bridge, "daytime", DATE_FORMAT)
-    df_bridge = standardize_datetime(df_bridge, "daytime", DATE_FORMAT)
     df_bridge["hour"] = df_bridge["hour"].astype(object)
     df_bridge["name"] = df_bridge["name"].astype(object)
 
@@ -299,8 +234,8 @@ def lineplot_data(
     output_dir: Path,
     data_source: List[str] = ["PASTA", "BRIDGE"],
 ) -> None:
-    print("\tCreating lineplots")
     """Create line plot showing hourly traffic flows"""
+    print("\tCreating lineplots")
     for df, source in enumerate(data_source):
         ax = sns.lineplot(
             data=dfp_list[df],
@@ -397,8 +332,8 @@ def plot_comparison(data_tot: pd.DataFrame, output_dir: Path) -> None:
         palette=PALETTES["secondary"],
     )
     axs[1].set_title("BRIDGE Count by Hour", fontsize=12)
-    axs[0].set_xlabel("Time (h)")
-    axs[0].set_ylabel("Vehicle Count")
+    axs[1].set_xlabel("Time (h)")
+    axs[1].set_ylabel("Vehicle Count")
     axs[1].grid(True, alpha=0.4)
     axs[1].tick_params(axis="x", rotation=45)
 
@@ -471,20 +406,24 @@ def main():
     print("\nANALYSIS OF TRAFFIC DATA FROM PASTA DATABASE AND BRIDGE INTERFACE")
     file_bridge = cfg.BRIDGE_CSV
     output_dir = cfg.OUTPUT_DIR_AM_SENS_DUA
+    sensor_folder = cfg.SENS_DATA_FOLDER
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(output_dir)
-
-    load_dotenv()  # reads variables from a .env file and sets them in os.environ
-    connection_strings = {
-        "ista": os.getenv("ISTA_URL"),
-        "istc": os.getenv("ISTC_URL"),
-    }
-    # "server:driver://username:psw@host"
 
     bridge_data, dfp_bridge = bridge_db(file_bridge)
-    df_anagraph, df_flows = _get_pasta_data(
-        connection_strings["ista"], connection_strings["istc"]
-    )
+    if sensor_folder is not None:
+        df_anagraph = pd.read_csv(Path(sensor_folder) / "anagraphics_fp.csv")
+        df_flows = pd.read_csv(Path(sensor_folder) / "flows_fp.csv")
+    else:
+        load_dotenv()  # reads variables from a .env file and sets them in os.environ
+        connection_strings = {
+            "ista": os.getenv("ISTA_URL"),
+            "istc": os.getenv("ISTC_URL"),
+        }
+        # "server:driver://username:psw@host"
+        df_anagraph, df_flows = _get_pasta_data(
+            connection_strings["ista"], connection_strings["istc"]
+        )
+
     df_pasta = pasta_db_merge(df_anagraph, df_flows)
 
     gdf_sensors = gpd.GeoDataFrame(
