@@ -284,9 +284,13 @@ def _process_multiple_ods(od_path: Path | list | str, out_path: Path, min_flow: 
         final_file_path = out_path / p.name
         os.makedirs(out_path, exist_ok=True)
         
-        with open(final_file_path, "w") as new:
+        # for simulation parallelisation, write a temporary file
+        ## a run started in parallel never reads half a file
+        temp_folder_path = out_path / f".{p.name}.{os.getpid()}.tmp"
+        with open(temp_folder_path, "w") as new:
             new.writelines(header)
             new.writelines(flow_cleaned)
+        os.replace(temp_folder_path, final_file_path) # overwrite to final when finished
         ods_cleaned.append(final_file_path)
 
     return ods_cleaned
